@@ -161,7 +161,12 @@ const useUndoRedo = (initialState) => {
 
   const setState = useCallback((newState, fromHistory = false) => {
     if (fromHistory) {
-      setHistory(currentHistory => ({...currentHistory, present: newState}));
+      // When loading a new state from history or a save file, we reset the undo/redo history.
+      setHistory({
+        past: [],
+        present: newState,
+        future: [],
+      });
       return;
     }
 
@@ -797,7 +802,7 @@ const loadSaveData = () => {
     const serializedData = localStorage.getItem('dndPlannerSaveData');
     if (serializedData) {
       const data = JSON.parse(serializedData);
-      if (data && Array.isArray(data.saveSlots)) {
+      if (data && Array.isArray(data.saveSlots) && data.saveSlots.length > 0) {
         return data;
       }
     }
@@ -834,6 +839,7 @@ function App() {
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [slotToDelete, setSlotToDelete] = useState(null);
   const [renamingSlotId, setRenamingSlotId] = useState(null);
+  const isInitialMount = useRef(true);
 
   const activeAppState = useMemo(() => {
     const activeSlot = saveData.saveSlots.find(s => s.id === saveData.activeSlotId);
@@ -850,11 +856,6 @@ function App() {
   ] = useUndoRedo(activeAppState);
   
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'auto');
-
-  // Load new state into undo/redo hook when active slot changes
-  useEffect(() => {
-    setState(activeAppState, true);
-  }, [activeAppState, setState]);
 
   useEffect(() => {
     const root = window.document.documentElement;
@@ -885,23 +886,49 @@ function App() {
 
   const { party, settings, days, xpThresholdsTable } = state;
 
-  // Save updated state to the active slot in localStorage
+  const saveDataRef = useRef(saveData);
   useEffect(() => {
-    if (!saveData.activeSlotId) return;
+    saveDataRef.current = saveData;
+  });
+
+  // Auto-save logic, refactored to prevent race conditions.
+  useEffect(() => {
+    // Don't save on initial mount.
+    if (isInitialMount.current) {
+        isInitialMount.current = false;
+        return;
+    }
+
+    const currentSaveData = saveDataRef.current;
+    if (!currentSaveData.activeSlotId) return;
+
+    const activeSlot = currentSaveData.saveSlots.find(slot => slot.id === currentSaveData.activeSlotId);
+    
+    // Prevent saving if the state is identical to what's already saved.
+    if (activeSlot && JSON.stringify(activeSlot.appState) === JSON.stringify(state)) {
+      return;
+    }
+
     const updatedSaveData = {
-        ...saveData,
-        saveSlots: saveData.saveSlots.map(slot => 
-            slot.id === saveData.activeSlotId 
+        ...currentSaveData,
+        saveSlots: currentSaveData.saveSlots.map(slot => 
+            slot.id === currentSaveData.activeSlotId 
             ? { ...slot, appState: state, lastModified: Date.now() }
             : slot
         )
     };
+
     try {
       localStorage.setItem('dndPlannerSaveData', JSON.stringify(updatedSaveData));
+      // Keep React state in sync with localStorage to avoid stale data (e.g., lastModified date)
+      setSaveData(updatedSaveData);
     } catch (error) {
       console.error("Error saving state to localStorage:", error);
     }
-  }, [state, saveData]);
+    // This effect should ONLY run when the user-manipulated state changes.
+    // It uses a ref to get the latest saveData without creating a dependency on it,
+    // which was the source of the race condition.
+  }, [state]);
 
   const dailyBudget = useMemo(() => calculateDailyBudget(party, settings.budgetMultiplier, xpThresholdsTable), [party, settings.budgetMultiplier, xpThresholdsTable]);
   const encounterThresholds = useMemo(() => calculateEncounterThresholds(party, settings.budgetMultiplier, xpThresholdsTable), [party, settings.budgetMultiplier, xpThresholdsTable]);
@@ -1003,24 +1030,30 @@ function App() {
   // Save Management Handlers
   const handleLoadSlot = (slotId) => {
     const slotToLoad = saveData.saveSlots.find(s => s.id === slotId);
-    if (!slotToLoad) return;
+    if (!slotToLoad || slotId === saveData.activeSlotId) {
+        setIsSaveModalOpen(false);
+        return;
+    }
 
-    // Explicitly update the main application state to prevent race condition
-    setState(slotToLoad.appState, true);
-    
-    // Update the active slot ID
+    // 1. Update the active slot ID.
     setSaveData(prev => ({ ...prev, activeSlotId: slotId }));
     
+    // 2. Explicitly set the app's live state to the loaded data.
+    // This triggers the undo/redo history to reset for the new context.
+    setState(slotToLoad.appState, true);
+
     setIsSaveModalOpen(false);
   };
   
   const handleSaveNewSlot = () => {
     const name = `Neuer Speicherstand ${saveData.saveSlots.length + 1}`;
+    // Creates a new slot with a clean initial state.
     const newSlot = createNewSaveSlot(initialAppState, name);
     setSaveData(prev => ({
         ...prev,
         saveSlots: [...prev.saveSlots, newSlot],
     }));
+    // We don't switch to it, just create it and allow renaming.
     setRenamingSlotId(newSlot.id);
   };
   
@@ -1037,41 +1070,44 @@ function App() {
     const remainingSlots = saveData.saveSlots.filter(s => s.id !== slotToDelete.id);
     let newActiveId = saveData.activeSlotId;
     
-    // Check if the currently active slot is the one being deleted
+    // If we deleted the active slot, we must select a new one.
     if (newActiveId === slotToDelete.id) {
-        // If so, determine the new active slot (the first in the list, or null if empty)
-        newActiveId = remainingSlots.length > 0 ? remainingSlots[0].id : null;
-        
-        // Find the full slot object for the new active ID
-        const newActiveSlot = newActiveId ? remainingSlots.find(s => s.id === newActiveId) : null;
-        
-        // Determine the state to load: either the new active slot's state or the initial default state
-        const newAppState = newActiveSlot ? newActiveSlot.appState : initialAppState;
-        
-        // Explicitly update the main application state to prevent race condition
-        setState(newAppState, true);
+        if (remainingSlots.length > 0) {
+            newActiveId = remainingSlots[0].id;
+            // Explicitly load the state of the new active slot.
+            setState(remainingSlots[0].appState, true);
+        } else {
+            // All slots were deleted, create a new default one.
+            const defaultSlot = createNewSaveSlot(initialAppState, "Standard-Speicherstand");
+            remainingSlots.push(defaultSlot);
+            newActiveId = defaultSlot.id;
+            setState(defaultSlot.appState, true);
+        }
     }
     
-    // Update the save data state with the new list of slots and potentially new active ID
     setSaveData({ saveSlots: remainingSlots, activeSlotId: newActiveId });
     setSlotToDelete(null);
   };
 
   const handleRenameSlot = (slotId, newName) => {
-    setSaveData(prev => ({
-        ...prev,
-        saveSlots: prev.saveSlots.map(s => s.id === slotId ? { ...s, name: newName } : s)
-    }));
+    const newSaveData = {
+        ...saveData,
+        saveSlots: saveData.saveSlots.map(s => s.id === slotId ? { ...s, name: newName, lastModified: Date.now() } : s)
+    };
+    setSaveData(newSaveData);
+    localStorage.setItem('dndPlannerSaveData', JSON.stringify(newSaveData));
   };
   
   const handleCopySlot = (slotId) => {
     const originalSlot = saveData.saveSlots.find(s => s.id === slotId);
     if (!originalSlot) return;
     const newSlot = createNewSaveSlot(originalSlot.appState, `Kopie von ${originalSlot.name}`);
-    setSaveData(prev => ({
-        ...prev,
-        saveSlots: [...prev.saveSlots, newSlot]
-    }));
+    const newSaveData = {
+        ...saveData,
+        saveSlots: [...saveData.saveSlots, newSlot]
+    };
+    setSaveData(newSaveData);
+    localStorage.setItem('dndPlannerSaveData', JSON.stringify(newSaveData));
   };
 
   const handleExportSlot = (slotId) => {
@@ -1093,14 +1129,15 @@ function App() {
     reader.onload = (event) => {
         try {
             const importedState = JSON.parse(event.target?.result);
-            // Basic validation
             if (importedState.party && importedState.settings && Array.isArray(importedState.days)) {
                 const name = file.name.replace(/\.json$/, '');
                 const newSlot = createNewSaveSlot(importedState, name);
-                 setSaveData(prev => ({
-                    ...prev,
-                    saveSlots: [...prev.saveSlots, newSlot]
-                }));
+                 const newSaveData = {
+                    ...saveData,
+                    saveSlots: [...saveData.saveSlots, newSlot]
+                };
+                setSaveData(newSaveData);
+                localStorage.setItem('dndPlannerSaveData', JSON.stringify(newSaveData));
             } else {
                 alert("Fehler: Die importierte Datei scheint kein gültiger Speicherstand zu sein.");
             }
