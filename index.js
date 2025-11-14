@@ -1002,7 +1002,15 @@ function App() {
 
   // Save Management Handlers
   const handleLoadSlot = (slotId) => {
+    const slotToLoad = saveData.saveSlots.find(s => s.id === slotId);
+    if (!slotToLoad) return;
+
+    // Explicitly update the main application state to prevent race condition
+    setState(slotToLoad.appState, true);
+    
+    // Update the active slot ID
     setSaveData(prev => ({ ...prev, activeSlotId: slotId }));
+    
     setIsSaveModalOpen(false);
   };
   
@@ -1025,14 +1033,27 @@ function App() {
 
   const handleConfirmDelete = () => {
     if (!slotToDelete) return;
-    setSaveData(prev => {
-        const remainingSlots = prev.saveSlots.filter(s => s.id !== slotToDelete.id);
-        let newActiveId = prev.activeSlotId;
-        if (newActiveId === slotToDelete.id) {
-            newActiveId = remainingSlots.length > 0 ? remainingSlots[0].id : null;
-        }
-        return { saveSlots: remainingSlots, activeSlotId: newActiveId };
-    });
+
+    const remainingSlots = saveData.saveSlots.filter(s => s.id !== slotToDelete.id);
+    let newActiveId = saveData.activeSlotId;
+    
+    // Check if the currently active slot is the one being deleted
+    if (newActiveId === slotToDelete.id) {
+        // If so, determine the new active slot (the first in the list, or null if empty)
+        newActiveId = remainingSlots.length > 0 ? remainingSlots[0].id : null;
+        
+        // Find the full slot object for the new active ID
+        const newActiveSlot = newActiveId ? remainingSlots.find(s => s.id === newActiveId) : null;
+        
+        // Determine the state to load: either the new active slot's state or the initial default state
+        const newAppState = newActiveSlot ? newActiveSlot.appState : initialAppState;
+        
+        // Explicitly update the main application state to prevent race condition
+        setState(newAppState, true);
+    }
+    
+    // Update the save data state with the new list of slots and potentially new active ID
+    setSaveData({ saveSlots: remainingSlots, activeSlotId: newActiveId });
     setSlotToDelete(null);
   };
 
