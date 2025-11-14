@@ -86,27 +86,59 @@ const calculateAdjustedXp = (baseXp, count, overhangPercent) => {
 const getEncounterDifficulty = (adjustedXp, thresholds) => {
     if (thresholds.deadly === 0) return { level: 'unknown', percentage: 0 };
 
+    // The thresholds represent the *midpoints* of their respective 20% sections on the bar.
+    // Easy = 30%, Medium = 50%, Hard = 70%, Deadly = 90%
+    const midpoints = {
+        trivial: thresholds.easy * 0.5, // Trivial midpoint (10%) is assumed half of Easy threshold.
+        easy: thresholds.easy,
+        medium: thresholds.medium,
+        hard: thresholds.hard,
+        deadly: thresholds.deadly,
+    };
+
+    // Calculate the XP values for the *boundaries* between sections based on the midpoints.
+    const boundaries = {
+        trivialEasy: (midpoints.trivial + midpoints.easy) / 2,   // Boundary at 20%
+        easyMedium: (midpoints.easy + midpoints.medium) / 2,     // Boundary at 40%
+        mediumHard: (midpoints.medium + midpoints.hard) / 2,     // Boundary at 60%
+        hardDeadly: (midpoints.hard + midpoints.deadly) / 2,     // Boundary at 80%
+    };
+
+    // Define the XP value for the top of the bar (100%).
+    // The XP range from 90% to 100% is assumed to be the same as 80% to 90%.
+    const maxDeadlyXp = midpoints.deadly + (midpoints.deadly - boundaries.hardDeadly);
+
     let level;
     let percentage;
 
-    if (adjustedXp <= thresholds.trivial) {
-        percentage = (adjustedXp / thresholds.trivial) * 10;
-        level = 'trivial';
-    } else if (adjustedXp <= thresholds.easy) {
-        percentage = 10 + ((adjustedXp - thresholds.trivial) / (thresholds.easy - thresholds.trivial)) * 20;
-        level = 'easy';
-    } else if (adjustedXp <= thresholds.medium) {
-        percentage = 30 + ((adjustedXp - thresholds.easy) / (thresholds.medium - thresholds.easy)) * 20;
-        level = 'medium';
-    } else if (adjustedXp <= thresholds.hard) {
-        percentage = 50 + ((adjustedXp - thresholds.medium) / (thresholds.hard - thresholds.medium)) * 20;
-        level = 'hard';
-    } else if (adjustedXp <= thresholds.deadly) {
-        percentage = 70 + ((adjustedXp - thresholds.hard) / (thresholds.deadly - thresholds.hard)) * 20;
-        level = 'deadly';
+    const safeDivide = (numerator, denominator) => {
+        if (denominator <= 0) return 0;
+        return numerator / denominator;
+    };
+    
+    // Helper function for linear interpolation between two points.
+    const interpolate = (xp, startXp, endXp, startPercent, endPercent) => {
+        const progress = xp - startXp;
+        const range = endXp - startXp;
+        const percentRange = endPercent - startPercent;
+        return startPercent + safeDivide(progress, range) * percentRange;
+    };
+
+    if (adjustedXp < boundaries.trivialEasy) {
+        level = 'trivial'; // 0% to 20%
+        percentage = interpolate(adjustedXp, 0, boundaries.trivialEasy, 0, 20);
+    } else if (adjustedXp < boundaries.easyMedium) {
+        level = 'easy'; // 20% to 40%
+        percentage = interpolate(adjustedXp, boundaries.trivialEasy, boundaries.easyMedium, 20, 40);
+    } else if (adjustedXp < boundaries.mediumHard) {
+        level = 'medium'; // 40% to 60%
+        percentage = interpolate(adjustedXp, boundaries.easyMedium, boundaries.mediumHard, 40, 60);
+    } else if (adjustedXp < boundaries.hardDeadly) {
+        level = 'hard'; // 60% to 80%
+        percentage = interpolate(adjustedXp, boundaries.mediumHard, boundaries.hardDeadly, 60, 80);
     } else {
-        percentage = Math.min(100, 90 + ((adjustedXp - thresholds.deadly) / thresholds.deadly) * 10);
-        level = 'deadly';
+        level = 'deadly'; // 80% to 100%
+        percentage = interpolate(adjustedXp, boundaries.hardDeadly, maxDeadlyXp, 80, 100);
     }
     
     return { level, percentage: Math.max(0, Math.min(100, percentage)) };
@@ -719,7 +751,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
               React.createElement('div', { className: "leading-relaxed" },
                 React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Encounter Difficulties:"),
                 React.createElement('br'),
-                React.createElement('span', { className: "text-slate-500" }, "◼ Trivial:"), ` < ${trivial.toLocaleString()} XP`,
+                React.createElement('span', { className: "text-slate-500" }, "◼ Trivial:"), ` < ${easy.toLocaleString()} XP`,
                 React.createElement('br'),
                 React.createElement('span', { className: "text-sky-600 dark:text-sky-400" }, "◼ Easy:"), ` ${easy.toLocaleString()} XP`,
                 React.createElement('br'),
