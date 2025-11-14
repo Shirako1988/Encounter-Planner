@@ -439,7 +439,11 @@ const EncounterCard = ({
   isDragging,
   isDropTargetBefore,
   isDropTargetAfter,
-  ...dragProps
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }) => {
   const overhangPercent = encounter.localOverhangPercent ?? globalOverhangPercent;
   
@@ -455,14 +459,18 @@ const EncounterCard = ({
 
   return (
     React.createElement('div', {
-      draggable: true,
-      ...dragProps,
+      onDragOver: onDragOver,
+      onDragLeave: onDragLeave,
+      onDrop: onDrop,
+      onDragEnd: onDragEnd,
       className: `relative bg-[#eee3cf] dark:bg-[#2f2f2f] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] p-3 flex flex-col gap-2 transition-all duration-300 ${isDragging ? 'opacity-50 scale-105 shadow-lg shadow-[#c99a4e]/50' : 'opacity-100'}`
     },
       isDropTargetBefore && React.createElement('div', { className: "absolute top-0 bottom-0 -left-1 w-1 bg-sky-500 rounded-full z-10 pointer-events-none" }),
       isDropTargetAfter && React.createElement('div', { className: "absolute top-0 bottom-0 -right-1 w-1 bg-sky-500 rounded-full z-10 pointer-events-none" }),
 
-      React.createElement('div', { 
+      React.createElement('div', {
+          draggable: true,
+          onDragStart: onDragStart,
           className: "absolute top-2 left-1.5 p-1 cursor-grab text-[#6d4f33] dark:text-[#a38b6d] hover:text-[#c99a4e] hover:bg-[#c99a4e]/10 rounded hidden sm:block",
           title: "Drag to reorder"
       },
