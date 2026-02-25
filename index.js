@@ -33,6 +33,43 @@ const XP_THRESHOLDS_PER_LEVEL = {
   20: { low: 6400, moderate: 13200, high: 22000 },
 };
 
+const CR_TO_XP = {
+  "0": 10,
+  "1/8": 25,
+  "1/4": 50,
+  "1/2": 100,
+  "1": 200,
+  "2": 450,
+  "3": 700,
+  "4": 1100,
+  "5": 1800,
+  "6": 2300,
+  "7": 2900,
+  "8": 3900,
+  "9": 5000,
+  "10": 5900,
+  "11": 7200,
+  "12": 8400,
+  "13": 10000,
+  "14": 11500,
+  "15": 13000,
+  "16": 15000,
+  "17": 18000,
+  "18": 20000,
+  "19": 22000,
+  "20": 25000,
+  "21": 33000,
+  "22": 41000,
+  "23": 50000,
+  "24": 62000,
+  "25": 75000,
+  "26": 90000,
+  "27": 105000,
+  "28": 120000,
+  "29": 135000,
+  "30": 155000
+};
+
 const DIFFICULTY_COLORS = {
     trivial: 'bg-slate-500',
     easy: 'bg-sky-600',
@@ -470,6 +507,7 @@ const XpMatrix = ({ level, xpTable, onUpdate, onReset }) => {
 const EncounterCard = ({
   encounter,
   globalOverhangPercent,
+  minOverhangPercent,
   encounterThresholds,
   onUpdate,
   onDelete,
@@ -482,17 +520,74 @@ const EncounterCard = ({
   onDrop,
   onDragEnd,
 }) => {
-  const overhangPercent = encounter.localOverhangPercent ?? globalOverhangPercent;
+  const creatures = encounter.creatures || [];
+  
+  const suggestedOverhang = useMemo(() => {
+    if (creatures.length === 0) return globalOverhangPercent;
+    let totalXp = 0;
+    let maxXp = 0;
+    let totalCount = 0;
+    creatures.forEach(c => {
+      const xp = CR_TO_XP[c.cr] || 0;
+      totalXp += xp * c.count;
+      totalCount += c.count;
+      if (xp > maxXp) maxXp = xp;
+    });
+    if (maxXp === 0 || totalCount === 0) return globalOverhangPercent;
+    
+    const averageXp = totalXp / totalCount;
+    const ratio = Math.sqrt(averageXp / maxXp);
+    
+    const minO = minOverhangPercent || 0;
+    const maxO = globalOverhangPercent || 0;
+    
+    return Math.round(minO + ratio * (maxO - minO));
+  }, [creatures, globalOverhangPercent, minOverhangPercent]);
+
+  const overhangPercent = encounter.localOverhangPercent ?? suggestedOverhang;
+  
+  const derivedBaseXp = useMemo(() => {
+    if (creatures.length === 0) return encounter.baseXp;
+    return creatures.reduce((sum, c) => sum + (CR_TO_XP[c.cr] || 0) * c.count, 0);
+  }, [creatures, encounter.baseXp]);
+
+  const derivedCount = useMemo(() => {
+    if (creatures.length === 0) return encounter.count;
+    return creatures.reduce((sum, c) => sum + c.count, 0);
+  }, [creatures, encounter.count]);
   
   const adjustedXp = useMemo(() => 
-    calculateAdjustedXp(encounter.baseXp, encounter.count, overhangPercent),
-    [encounter.baseXp, encounter.count, overhangPercent]
+    calculateAdjustedXp(derivedBaseXp, derivedCount, overhangPercent),
+    [derivedBaseXp, derivedCount, overhangPercent]
   );
   
   const difficulty = useMemo(() =>
     getEncounterDifficulty(adjustedXp, encounterThresholds),
     [adjustedXp, encounterThresholds]
   );
+
+  const [creatureToDelete, setCreatureToDelete] = useState(null);
+
+  const addCreature = () => {
+    const newCreatures = [...creatures, { id: crypto.randomUUID(), cr: "1", count: 1 }];
+    onUpdate({ creatures: newCreatures });
+  };
+
+  const updateCreature = (id, updates) => {
+    const newCreatures = creatures.map(c => c.id === id ? { ...c, ...updates } : c);
+    onUpdate({ creatures: newCreatures });
+  };
+
+  const confirmDeleteCreature = (id) => {
+    setCreatureToDelete(id);
+  };
+
+  const deleteCreature = () => {
+    if (!creatureToDelete) return;
+    const newCreatures = creatures.filter(c => c.id !== creatureToDelete);
+    onUpdate({ creatures: newCreatures });
+    setCreatureToDelete(null);
+  };
 
   return (
     React.createElement('div', {
@@ -525,20 +620,39 @@ const EncounterCard = ({
         React.createElement('button', { onClick: onDelete, className: "bg-transparent border-2 border-red-800/50 text-red-700 dark:text-red-500 text-sm font-bold py-1 px-2.5 rounded-sm shrink-0 transition-colors hover:bg-red-800/20" }, "×")
       ),
       
-      React.createElement('div', { className: "flex flex-wrap gap-2 items-end sm:ml-8" },
+      React.createElement('div', { className: "flex flex-col gap-2 sm:ml-8" },
+        creatures.length > 0 && React.createElement('div', { className: "flex flex-col gap-2 bg-[#d1c7b8]/30 dark:bg-[#1a1a1a]/30 p-2 rounded" },
+          creatures.map(c => (
+            React.createElement('div', { key: c.id, className: "flex items-center gap-2" },
+              React.createElement('select', {
+                value: c.cr,
+                onChange: e => updateCreature(c.id, { cr: e.target.value }),
+                className: "flex-1 bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
+              }, Object.keys(CR_TO_XP).sort((a, b) => CR_TO_XP[a] - CR_TO_XP[b]).map(cr => React.createElement('option', { key: cr, value: cr }, `CR ${cr} (${CR_TO_XP[cr]} XP)`))),
+              React.createElement('div', { className: "w-20" },
+                React.createElement(NumberInput, { isEncounter: true, min: "1", value: c.count, onChange: e => updateCreature(c.id, { count: parseInt(e.target.value) || 1 }) })
+              ),
+              React.createElement('button', { onClick: () => confirmDeleteCreature(c.id), className: "text-red-700 dark:text-red-500 font-bold px-2 py-1 hover:bg-red-800/20 rounded" }, "×")
+            )
+          ))
+        ),
+        React.createElement('button', { onClick: addCreature, className: "text-sm text-[#c99a4e] font-bold self-start hover:underline" }, "+ Add Creature Type")
+      ),
+
+      React.createElement('div', { className: "flex flex-wrap gap-2 items-end sm:ml-8 mt-2" },
         React.createElement(FormGroup, { label: "Base XP", isEncounter: true },
-          React.createElement(NumberInput, { isEncounter: true, min: "0", value: encounter.baseXp, onChange: e => onUpdate({ baseXp: parseInt(e.target.value) || 0 }) })
+          React.createElement(NumberInput, { isEncounter: true, min: "0", value: derivedBaseXp, disabled: creatures.length > 0, onChange: e => onUpdate({ baseXp: parseInt(e.target.value) || 0 }) })
         ),
         React.createElement(FormGroup, { label: "Count", isEncounter: true },
-          React.createElement(NumberInput, { isEncounter: true, min: "1", value: encounter.count, onChange: e => onUpdate({ count: parseInt(e.target.value) || 1 }) })
+          React.createElement(NumberInput, { isEncounter: true, min: "1", value: derivedCount, disabled: creatures.length > 0, onChange: e => onUpdate({ count: parseInt(e.target.value) || 1 }) })
         ),
-        React.createElement(FormGroup, { label: "Overhang %", title: "Leave empty to use global setting", isEncounter: true },
+        React.createElement(FormGroup, { label: "Overhang %", title: `Suggested: ${suggestedOverhang}%`, isEncounter: true },
           React.createElement(NumberInput, { 
             isEncounter: true,
             min: "0", max: "999", 
             value: encounter.localOverhangPercent ?? '', 
             onChange: e => onUpdate({ localOverhangPercent: e.target.value === '' ? null : parseInt(e.target.value) }),
-            placeholder: globalOverhangPercent.toString() 
+            placeholder: suggestedOverhang.toString() 
           })
         ),
         React.createElement(FormGroup, { label: "Adjusted XP", isEncounter: true },
@@ -561,6 +675,28 @@ const EncounterCard = ({
         React.createElement('div', { className: `w-14 text-center text-sm font-bold uppercase tracking-wider ${DIFFICULTY_TEXT_COLORS[difficulty.level]}` },
           difficulty.level
         )
+      ),
+
+      creatureToDelete && React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4", onClick: () => setCreatureToDelete(null) },
+        React.createElement('div', { className: "bg-[#f3eadd] dark:bg-[#2a2a2a] border-4 border-[#d1c7b8] dark:border-[#4a4a4a] w-full max-w-sm flex flex-col shadow-2xl", onClick: e => e.stopPropagation() },
+            React.createElement('header', { className: "flex justify-between items-center p-4 border-b-4 border-red-800/40" },
+                React.createElement('h2', { className: "text-xl font-bold font-medieval text-red-800 dark:text-red-500" }, "Kreatur Löschen"),
+                React.createElement('button', { onClick: () => setCreatureToDelete(null), className: "text-2xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-red-700" }, "×")
+            ),
+            React.createElement('div', { className: "p-6 text-center" },
+                React.createElement('p', { className: "text-lg text-[#6d4f33] dark:text-[#d4c8b0]" },
+                    "Möchten Sie diese Kreatur wirklich aus dem Encounter entfernen?"
+                )
+            ),
+            React.createElement('footer', { className: "flex justify-end gap-3 p-4 bg-[#eee3cf] dark:bg-[#2f2f2f]" },
+                React.createElement('button', { onClick: () => setCreatureToDelete(null), className: "bg-transparent border-2 border-slate-500 text-slate-600 dark:text-slate-400 font-bold py-2 px-4 rounded-sm transition-colors hover:bg-slate-500/20" },
+                    "Abbrechen"
+                ),
+                React.createElement('button', { onClick: deleteCreature, className: "bg-red-800 text-white font-bold py-2 px-4 rounded-sm transition-transform hover:scale-105 border-2 border-red-900" },
+                    "Löschen"
+                )
+            )
+        )
       )
     )
   );
@@ -572,6 +708,7 @@ const AdventuringDay = ({
   day,
   dailyBudget,
   globalOverhangPercent,
+  minOverhangPercent,
   encounterThresholds,
   onUpdateDay,
   onDeleteDay,
@@ -585,10 +722,41 @@ const AdventuringDay = ({
   
   const totalUsedXp = useMemo(() => {
     return day.encounters.reduce((total, enc) => {
-      const overhang = enc.localOverhangPercent ?? globalOverhangPercent;
-      return total + calculateAdjustedXp(enc.baseXp, enc.count, overhang);
+      const creatures = enc.creatures || [];
+      
+      let suggestedOverhang = globalOverhangPercent;
+      if (creatures.length > 0) {
+        let totalXp = 0;
+        let maxXp = 0;
+        let totalCount = 0;
+        creatures.forEach(c => {
+          const xp = CR_TO_XP[c.cr] || 0;
+          totalXp += xp * c.count;
+          totalCount += c.count;
+          if (xp > maxXp) maxXp = xp;
+        });
+        if (maxXp > 0 && totalCount > 0) {
+          const averageXp = totalXp / totalCount;
+          const ratio = Math.sqrt(averageXp / maxXp);
+          const minO = minOverhangPercent || 0;
+          const maxO = globalOverhangPercent || 0;
+          suggestedOverhang = Math.round(minO + ratio * (maxO - minO));
+        }
+      }
+      
+      const overhang = enc.localOverhangPercent ?? suggestedOverhang;
+      
+      const derivedBaseXp = creatures.length > 0 
+        ? creatures.reduce((sum, c) => sum + (CR_TO_XP[c.cr] || 0) * c.count, 0)
+        : enc.baseXp;
+        
+      const derivedCount = creatures.length > 0
+        ? creatures.reduce((sum, c) => sum + c.count, 0)
+        : enc.count;
+        
+      return total + calculateAdjustedXp(derivedBaseXp, derivedCount, overhang);
     }, 0);
-  }, [day.encounters, globalOverhangPercent]);
+  }, [day.encounters, globalOverhangPercent, minOverhangPercent]);
   
   const remainingXp = dailyBudget - totalUsedXp;
 
@@ -672,6 +840,7 @@ const AdventuringDay = ({
             key: encounter.id,
             encounter: encounter,
             globalOverhangPercent: globalOverhangPercent,
+            minOverhangPercent: minOverhangPercent,
             encounterThresholds: encounterThresholds,
             onUpdate: updatedEncounter => onUpdateEncounter(day.id, encounter.id, updatedEncounter),
             onDelete: () => onDeleteEncounter(day.id, encounter.id),
@@ -728,7 +897,19 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
         ),
 
         React.createElement('div', { className: "mt-6" },
-          React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d] mb-2" }, "Overhang Bonus %"),
+          React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d] mb-2" }, "Min Overhang Bonus %"),
+          React.createElement('div', { className: "flex items-center gap-3" },
+            React.createElement(RangeInput, {
+              min: "0", max: "10", step: "1",
+              value: settings.minOverhangPercent || 0,
+              onChange: e => onSettingsChange({ minOverhangPercent: parseInt(e.target.value) })
+            }),
+            React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, `${settings.minOverhangPercent || 0}%`)
+          )
+        ),
+
+        React.createElement('div', { className: "mt-6" },
+          React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d] mb-2" }, "Max Overhang Bonus %"),
           React.createElement('div', { className: "flex items-center gap-3" },
             React.createElement(RangeInput, {
               min: "0", max: "10", step: "1",
@@ -785,7 +966,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
 
 const initialAppState = {
   party: { size: 4, level: 1 },
-  settings: { budgetMultiplier: 1.0, globalOverhangPercent: 10 },
+  settings: { budgetMultiplier: 1.0, globalOverhangPercent: 10, minOverhangPercent: 0 },
   days: [],
   xpThresholdsTable: XP_THRESHOLDS_PER_LEVEL,
 };
@@ -1206,6 +1387,7 @@ function App() {
                 day: day,
                 dailyBudget: dailyBudget,
                 globalOverhangPercent: settings.globalOverhangPercent,
+                minOverhangPercent: settings.minOverhangPercent,
                 encounterThresholds: encounterThresholds,
                 onUpdateDay: updateDay,
                 onDeleteDay: deleteDay,
