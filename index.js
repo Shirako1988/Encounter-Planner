@@ -629,9 +629,9 @@ const EncounterCard = ({
                 value: c.name || '',
                 onChange: e => updateCreature(c.id, { name: e.target.value }),
                 placeholder: "Creature Name",
-                className: "flex-1 w-full sm:w-auto bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
+                className: "w-full sm:w-1/2 bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
               }),
-              React.createElement('div', { className: "flex items-center gap-2 w-full sm:w-auto" },
+              React.createElement('div', { className: "flex items-center gap-2 w-full sm:w-1/2" },
                 React.createElement('select', {
                   value: c.cr,
                   onChange: e => updateCreature(c.id, { cr: e.target.value }),
