@@ -629,16 +629,16 @@ const EncounterCard = ({
                 value: c.name || '',
                 onChange: e => updateCreature(c.id, { name: e.target.value }),
                 placeholder: "Creature Name",
-                className: "w-full sm:w-1/2 bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
+                className: "flex-1 w-full bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
               }),
-              React.createElement('div', { className: "flex items-center gap-2 w-full sm:w-1/2" },
+              React.createElement('div', { className: "flex items-center gap-2 w-full sm:w-auto shrink-0" },
                 React.createElement('select', {
                   value: c.cr,
                   onChange: e => updateCreature(c.id, { cr: e.target.value }),
-                  className: "flex-1 sm:flex-none sm:w-32 bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
+                  className: "flex-1 sm:flex-none w-full sm:w-32 bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
                 }, Object.keys(CR_TO_XP).sort((a, b) => CR_TO_XP[a] - CR_TO_XP[b]).map(cr => React.createElement('option', { key: cr, value: cr }, `CR ${cr} (${CR_TO_XP[cr]} XP)`))),
-                React.createElement('div', { className: "w-20" },
-                  React.createElement(NumberInput, { isEncounter: true, min: "1", value: c.count, onChange: e => updateCreature(c.id, { count: parseInt(e.target.value) || 1 }) })
+                React.createElement('div', { className: "w-14 shrink-0" },
+                  React.createElement(NumberInput, { isEncounter: true, min: "1", max: "99", value: c.count, onChange: e => updateCreature(c.id, { count: parseInt(e.target.value) || 1 }) })
                 ),
                 React.createElement('button', { onClick: () => confirmDeleteCreature(c.id), className: "text-red-700 dark:text-red-500 font-bold px-2 py-1 hover:bg-red-800/20 rounded shrink-0" }, "×")
               )
