@@ -623,16 +623,25 @@ const EncounterCard = ({
       React.createElement('div', { className: "flex flex-col gap-2 sm:ml-8" },
         creatures.length > 0 && React.createElement('div', { className: "flex flex-col gap-2 bg-[#d1c7b8]/30 dark:bg-[#1a1a1a]/30 p-2 rounded" },
           creatures.map(c => (
-            React.createElement('div', { key: c.id, className: "flex items-center gap-2" },
-              React.createElement('select', {
-                value: c.cr,
-                onChange: e => updateCreature(c.id, { cr: e.target.value }),
-                className: "flex-1 bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
-              }, Object.keys(CR_TO_XP).sort((a, b) => CR_TO_XP[a] - CR_TO_XP[b]).map(cr => React.createElement('option', { key: cr, value: cr }, `CR ${cr} (${CR_TO_XP[cr]} XP)`))),
-              React.createElement('div', { className: "w-20" },
-                React.createElement(NumberInput, { isEncounter: true, min: "1", value: c.count, onChange: e => updateCreature(c.id, { count: parseInt(e.target.value) || 1 }) })
-              ),
-              React.createElement('button', { onClick: () => confirmDeleteCreature(c.id), className: "text-red-700 dark:text-red-500 font-bold px-2 py-1 hover:bg-red-800/20 rounded" }, "×")
+            React.createElement('div', { key: c.id, className: "flex flex-col sm:flex-row items-start sm:items-center gap-2" },
+              React.createElement('input', {
+                type: "text",
+                value: c.name || '',
+                onChange: e => updateCreature(c.id, { name: e.target.value }),
+                placeholder: "Creature Name",
+                className: "flex-1 w-full sm:w-auto bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
+              }),
+              React.createElement('div', { className: "flex items-center gap-2 w-full sm:w-auto" },
+                React.createElement('select', {
+                  value: c.cr,
+                  onChange: e => updateCreature(c.id, { cr: e.target.value }),
+                  className: "flex-1 sm:flex-none sm:w-32 bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
+                }, Object.keys(CR_TO_XP).sort((a, b) => CR_TO_XP[a] - CR_TO_XP[b]).map(cr => React.createElement('option', { key: cr, value: cr }, `CR ${cr} (${CR_TO_XP[cr]} XP)`))),
+                React.createElement('div', { className: "w-20" },
+                  React.createElement(NumberInput, { isEncounter: true, min: "1", value: c.count, onChange: e => updateCreature(c.id, { count: parseInt(e.target.value) || 1 }) })
+                ),
+                React.createElement('button', { onClick: () => confirmDeleteCreature(c.id), className: "text-red-700 dark:text-red-500 font-bold px-2 py-1 hover:bg-red-800/20 rounded shrink-0" }, "×")
+              )
             )
           ))
         ),
