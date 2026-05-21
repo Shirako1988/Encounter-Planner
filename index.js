@@ -120,6 +120,12 @@ const calculateAdjustedXp = (baseXp, count, overhangPercent) => {
   return baseXp;
 };
 
+const calculatePlayerXpAward = (baseXp, partySize, awardPercent) => {
+  const safePartySize = Math.max(1, partySize || 1);
+  const safeAwardPercent = awardPercent ?? 50;
+  return Math.round((baseXp * (safeAwardPercent / 100)) / safePartySize);
+};
+
 const getEncounterDifficulty = (adjustedXp, thresholds) => {
     if (thresholds.deadly === 0) return { level: 'unknown', percentage: 0 };
 
@@ -508,6 +514,8 @@ const EncounterCard = ({
   encounter,
   globalOverhangPercent,
   minOverhangPercent,
+  xpAwardPercent,
+  partySize,
   encounterThresholds,
   onUpdate,
   onDelete,
@@ -564,6 +572,11 @@ const EncounterCard = ({
   const difficulty = useMemo(() =>
     getEncounterDifficulty(adjustedXp, encounterThresholds),
     [adjustedXp, encounterThresholds]
+  );
+
+  const playerXpAward = useMemo(() =>
+    calculatePlayerXpAward(derivedBaseXp, partySize, xpAwardPercent),
+    [derivedBaseXp, partySize, xpAwardPercent]
   );
 
   const [creatureToDelete, setCreatureToDelete] = useState(null);
@@ -652,8 +665,13 @@ const EncounterCard = ({
         React.createElement(FormGroup, { label: "Base XP", isEncounter: true },
           React.createElement(NumberInput, { isEncounter: true, min: "0", value: derivedBaseXp, disabled: creatures.length > 0, onChange: e => onUpdate({ baseXp: parseInt(e.target.value) || 0 }) })
         ),
-        React.createElement(FormGroup, { label: "Count", isEncounter: true },
-          React.createElement(NumberInput, { isEncounter: true, min: "1", value: derivedCount, disabled: creatures.length > 0, onChange: e => onUpdate({ count: parseInt(e.target.value) || 1 }) })
+        creatures.length === 0 && React.createElement(FormGroup, { label: "Count", isEncounter: true },
+          React.createElement(NumberInput, { isEncounter: true, min: "1", value: derivedCount, onChange: e => onUpdate({ count: parseInt(e.target.value) || 1 }) })
+        ),
+        React.createElement(FormGroup, { label: "XP / Player", title: `${xpAwardPercent ?? 50}% of Base XP ÷ ${Math.max(1, partySize || 1)} players`, isEncounter: true },
+          React.createElement('div', { className: "h-[38px] flex items-center justify-center text-base font-bold text-[#c99a4e] bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 rounded px-2 py-1.5" },
+            playerXpAward.toLocaleString()
+          )
         ),
         React.createElement(FormGroup, { label: "Overhang %", title: `Suggested: ${suggestedOverhang}%`, isEncounter: true },
           React.createElement(NumberInput, { 
@@ -718,6 +736,8 @@ const AdventuringDay = ({
   dailyBudget,
   globalOverhangPercent,
   minOverhangPercent,
+  xpAwardPercent,
+  partySize,
   encounterThresholds,
   onUpdateDay,
   onDeleteDay,
@@ -850,6 +870,8 @@ const AdventuringDay = ({
             encounter: encounter,
             globalOverhangPercent: globalOverhangPercent,
             minOverhangPercent: minOverhangPercent,
+            xpAwardPercent: xpAwardPercent,
+            partySize: partySize,
             encounterThresholds: encounterThresholds,
             onUpdate: updatedEncounter => onUpdateEncounter(day.id, encounter.id, updatedEncounter),
             onDelete: () => onDeleteEncounter(day.id, encounter.id),
@@ -879,6 +901,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
   const { trivial, easy, medium, hard, deadly } = encounterThresholds;
   const baseThresholds = xpTable[party.level];
   const baseDailyPerPlayer = baseThresholds ? baseThresholds.high * 3 : 0;
+  const xpAwardPercent = settings.xpAwardPercent ?? 50;
   
   return (
     React.createElement(React.Fragment, null,
@@ -902,6 +925,18 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
               onChange: e => onSettingsChange({ budgetMultiplier: parseFloat(e.target.value) })
             }),
             React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, settings.budgetMultiplier.toFixed(2))
+          )
+        ),
+
+        React.createElement('div', { className: "mt-6" },
+          React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d] mb-2" }, "Player XP Award %"),
+          React.createElement('div', { className: "flex items-center gap-3" },
+            React.createElement(RangeInput, {
+              min: "25", max: "100", step: "5",
+              value: xpAwardPercent,
+              onChange: e => onSettingsChange({ xpAwardPercent: parseInt(e.target.value) })
+            }),
+            React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, `${xpAwardPercent}%`)
           )
         ),
 
@@ -944,6 +979,11 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
                   settings.budgetMultiplier !== 1 && React.createElement('span', { className: "text-[#c99a4e] font-bold" }, `${(baseDailyPerPlayer * settings.budgetMultiplier).toLocaleString()} XP`)
               ),
               React.createElement('div', { className: "leading-relaxed" },
+                  React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Player XP Award:"),
+                  React.createElement('br'),
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Base XP ÷ Party Size`)
+              ),
+              React.createElement('div', { className: "leading-relaxed" },
                 React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Encounter Difficulties:"),
                 React.createElement('br'),
                 React.createElement('span', { className: "text-slate-500" }, "◼ Trivial:"), ` < ${easy.toLocaleString()} XP`,
@@ -975,7 +1015,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
 
 const initialAppState = {
   party: { size: 4, level: 1 },
-  settings: { budgetMultiplier: 1.0, globalOverhangPercent: 10, minOverhangPercent: 0 },
+  settings: { budgetMultiplier: 1.0, globalOverhangPercent: 10, minOverhangPercent: 0, xpAwardPercent: 50 },
   days: [],
   xpThresholdsTable: XP_THRESHOLDS_PER_LEVEL,
 };
@@ -984,16 +1024,38 @@ const createNewSaveSlot = (appState, name) => ({
     id: crypto.randomUUID(),
     name,
     lastModified: Date.now(),
-    appState,
+    appState: normalizeAppState(appState),
 });
+
+const normalizeAppState = (appState = {}) => ({
+  ...initialAppState,
+  ...appState,
+  party: { ...initialAppState.party, ...(appState.party || {}) },
+  settings: { ...initialAppState.settings, ...(appState.settings || {}) },
+  days: Array.isArray(appState.days) ? appState.days : [],
+  xpThresholdsTable: appState.xpThresholdsTable || initialAppState.xpThresholdsTable,
+});
+
+const normalizeSaveData = (data) => {
+  if (!data || !Array.isArray(data.saveSlots) || data.saveSlots.length === 0) return null;
+  const saveSlots = data.saveSlots.map(slot => ({
+    ...slot,
+    appState: normalizeAppState(slot.appState || {}),
+  }));
+  const activeSlotId = saveSlots.some(slot => slot.id === data.activeSlotId)
+    ? data.activeSlotId
+    : saveSlots[0].id;
+  return { ...data, activeSlotId, saveSlots };
+};
 
 const loadSaveData = () => {
   try {
     const serializedData = localStorage.getItem('dndPlannerSaveData');
     if (serializedData) {
       const data = JSON.parse(serializedData);
-      if (data && Array.isArray(data.saveSlots) && data.saveSlots.length > 0) {
-        return data;
+      const normalizedData = normalizeSaveData(data);
+      if (normalizedData) {
+        return normalizedData;
       }
     }
     
@@ -1002,11 +1064,7 @@ const loadSaveData = () => {
     if (oldSerializedState) {
         const oldState = JSON.parse(oldSerializedState);
         if (oldState.party && oldState.settings && Array.isArray(oldState.days)) {
-            const migratedState = {
-                ...initialAppState,
-                ...oldState,
-                xpThresholdsTable: oldState.xpThresholdsTable || initialAppState.xpThresholdsTable,
-            };
+            const migratedState = normalizeAppState(oldState);
             const newSlot = createNewSaveSlot(migratedState, "Standard-Speicherstand");
             return { activeSlotId: newSlot.id, saveSlots: [newSlot] };
         }
@@ -1397,6 +1455,8 @@ function App() {
                 dailyBudget: dailyBudget,
                 globalOverhangPercent: settings.globalOverhangPercent,
                 minOverhangPercent: settings.minOverhangPercent,
+                xpAwardPercent: settings.xpAwardPercent ?? 50,
+                partySize: party.size,
                 encounterThresholds: encounterThresholds,
                 onUpdateDay: updateDay,
                 onDeleteDay: deleteDay,
