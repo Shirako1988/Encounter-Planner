@@ -324,12 +324,14 @@ const RangeInputWithGhost = ({ suggestedValue, min, max, ...props }) => {
   const suggestedNumber = parseFloat(suggestedValue);
   const hasValidMarker = Number.isFinite(minNumber) && Number.isFinite(maxNumber) && Number.isFinite(suggestedNumber) && maxNumber > minNumber;
   const clampedSuggested = hasValidMarker ? Math.max(minNumber, Math.min(maxNumber, suggestedNumber)) : minNumber;
-  const markerLeft = hasValidMarker ? ((clampedSuggested - minNumber) / (maxNumber - minNumber)) * 100 : 0;
+  const markerPercent = hasValidMarker ? ((clampedSuggested - minNumber) / (maxNumber - minNumber)) * 100 : 0;
+  const thumbWidthPx = 20;
+  const markerOffsetPx = hasValidMarker ? (thumbWidthPx / 2) - (thumbWidthPx * markerPercent / 100) : 0;
 
   return React.createElement('div', { className: "relative flex-1 flex items-center h-6" },
     hasValidMarker && React.createElement('div', {
       className: "absolute top-1/2 w-5 h-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#c99a4e]/70 bg-[#c99a4e]/20 pointer-events-none z-10 shadow-sm",
-      style: { left: `${markerLeft}%` },
+      style: { left: `calc(${markerPercent}% + ${markerOffsetPx}px)` },
       title: `Suggested: ${suggestedValue}`
     }),
     React.createElement(RangeInput, { min, max, ...props })
@@ -384,6 +386,41 @@ const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, slotName }) => {
                     ),
                     React.createElement('button', { onClick: onConfirm, className: "bg-red-800 text-white font-bold py-2 px-6 rounded-sm transition-transform hover:scale-105 border-2 border-red-900" },
                         "Löschen"
+                    )
+                )
+            )
+        )
+    );
+};
+
+const ConfirmDeleteDayModal = ({ isOpen, onClose, onConfirm, day }) => {
+    if (!isOpen || !day) return null;
+
+    const encounterCount = Array.isArray(day.encounters) ? day.encounters.length : 0;
+
+    return (
+        React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4", onClick: onClose },
+            React.createElement('div', { className: "bg-[#f3eadd] dark:bg-[#2a2a2a] border-4 border-[#d1c7b8] dark:border-[#4a4a4a] w-full max-w-md flex flex-col shadow-2xl", onClick: e => e.stopPropagation() },
+                React.createElement('header', { className: "flex justify-between items-center p-4 border-b-4 border-red-800/40" },
+                    React.createElement('h2', { className: "text-2xl font-bold font-medieval text-red-800 dark:text-red-500" }, "Delete Day bestätigen"),
+                    React.createElement('button', { onClick: onClose, className: "text-3xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-red-700" }, "×")
+                ),
+                React.createElement('div', { className: "p-6 text-center" },
+                    React.createElement('p', { className: "text-lg text-[#6d4f33] dark:text-[#d4c8b0]" },
+                        "Möchten Sie diesen Adventuring Day wirklich löschen?",
+                        React.createElement('br'),
+                        React.createElement('strong', { className: "font-bold text-[#c99a4e]" }, day.title || "Unnamed Day")
+                    ),
+                    React.createElement('p', { className: "text-sm text-slate-500 mt-2" },
+                        `${encounterCount} Encounter${encounterCount === 1 ? '' : 's'} werden ebenfalls gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.`
+                    )
+                ),
+                React.createElement('footer', { className: "flex justify-end gap-3 p-4 bg-[#eee3cf] dark:bg-[#2f2f2f]" },
+                    React.createElement('button', { onClick: onClose, className: "bg-transparent border-2 border-slate-500 text-slate-600 dark:text-slate-400 font-bold py-2 px-6 rounded-sm transition-colors hover:bg-slate-500/20" },
+                        "Abbrechen"
+                    ),
+                    React.createElement('button', { onClick: onConfirm, className: "bg-red-800 text-white font-bold py-2 px-6 rounded-sm transition-transform hover:scale-105 border-2 border-red-900" },
+                        "Day löschen"
                     )
                 )
             )
@@ -1194,6 +1231,7 @@ function App() {
   const [saveData, setSaveData] = useState(loadSaveData);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [slotToDelete, setSlotToDelete] = useState(null);
+  const [dayToDelete, setDayToDelete] = useState(null);
   const [renamingSlotId, setRenamingSlotId] = useState(null);
   const isInitialMount = useRef(true);
 
@@ -1330,6 +1368,19 @@ function App() {
   const deleteDay = useCallback((dayId) => {
     setState({ ...state, days: days.filter(d => d.id !== dayId) });
   }, [state, setState]);
+
+  const requestDeleteDay = useCallback((dayId) => {
+    const day = days.find(d => d.id === dayId);
+    if (day) {
+      setDayToDelete(day);
+    }
+  }, [days]);
+
+  const confirmDeleteDay = useCallback(() => {
+    if (!dayToDelete) return;
+    deleteDay(dayToDelete.id);
+    setDayToDelete(null);
+  }, [dayToDelete, deleteDay]);
 
   const updateDay = useCallback((dayId, updatedDay) => {
     setState({ ...state, days: days.map(d => d.id === dayId ? { ...d, ...updatedDay } : d) });
@@ -1521,7 +1572,7 @@ function App() {
   );
 
   return (
-    React.createElement('div', { className: "max-w-[1800px] min-h-[calc(100vh-48px)] mx-auto" },
+    React.createElement('div', { className: "max-w-[1800px] h-[calc(100vh-48px)] mx-auto flex flex-col overflow-hidden" },
       React.createElement('header', { className: "flex justify-between items-start sm:items-center mb-4" },
         React.createElement('div', null,
           React.createElement('h1', { className: "text-3xl sm:text-4xl font-bold text-[#6d4f33] dark:text-[#d4c8b0]" }, "Encounter Planner"),
@@ -1538,8 +1589,8 @@ function App() {
           React.createElement(AppButton, { onClick: redo, disabled: !canRedo, title: "Redo" }, React.createElement(RedoIcon))
         )
       ),
-      React.createElement('main', { className: "grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6 items-start" },
-        React.createElement('aside', { className: "lg:sticky lg:top-6 flex flex-col gap-6" },
+      React.createElement('main', { className: "grid grid-cols-1 lg:grid-cols-[400px_minmax(0,1fr)] gap-6 flex-1 min-h-0" },
+        React.createElement('aside', { className: "flex flex-col gap-6 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-2" },
           React.createElement(PartySetup, { 
             party: party, 
             settings: settings,
@@ -1553,8 +1604,8 @@ function App() {
           })
         ),
 
-        React.createElement('section', { className: "flex flex-col gap-4" },
-          React.createElement('button', { onClick: addDay, className: "w-full bg-[#c99a4e] text-[#f3eadd] font-bold py-3 px-4 rounded-sm text-lg transition-transform hover:scale-[1.02] border-2 border-[#ab813e] shadow-md" },
+        React.createElement('section', { className: "flex flex-col gap-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-2" },
+          React.createElement('button', { onClick: addDay, className: "sticky top-0 z-20 w-full bg-[#c99a4e] text-[#f3eadd] font-bold py-3 px-4 rounded-sm text-lg transition-transform hover:scale-[1.02] border-2 border-[#ab813e] shadow-md" },
             "+ Add Adventuring Day"
           ),
           React.createElement('div', { className: "flex flex-col gap-6" },
@@ -1569,7 +1620,7 @@ function App() {
                 partySize: party.size,
                 encounterThresholds: encounterThresholds,
                 onUpdateDay: updateDay,
-                onDeleteDay: deleteDay,
+                onDeleteDay: requestDeleteDay,
                 onAddEncounter: addEncounter,
                 onDeleteEncounter: deleteEncounter,
                 onUpdateEncounter: updateEncounter,
@@ -1601,6 +1652,12 @@ function App() {
         onClose: () => setSlotToDelete(null),
         onConfirm: handleConfirmDelete,
         slotName: slotToDelete?.name || ''
+      }),
+      React.createElement(ConfirmDeleteDayModal, {
+        isOpen: !!dayToDelete,
+        onClose: () => setDayToDelete(null),
+        onConfirm: confirmDeleteDay,
+        day: dayToDelete
       })
     )
   );
