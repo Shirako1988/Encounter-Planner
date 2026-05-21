@@ -126,6 +126,37 @@ const calculatePlayerXpAward = (baseXp, partySize, awardPercent) => {
   return Math.round((baseXp * (safeAwardPercent / 100)) / safePartySize);
 };
 
+const getSuggestedBudgetMultiplier = (level) => {
+  const safeLevel = Math.max(1, Math.min(20, parseInt(level, 10) || 1));
+  if (safeLevel === 1) return 0.5;
+  if (safeLevel === 2) return 0.75;
+  return 1.0;
+};
+
+const getSuggestedXpAwardPercent = (level) => {
+  const safeLevel = Math.max(1, Math.min(20, parseInt(level, 10) || 1));
+  if (safeLevel <= 2) return 100;
+  if (safeLevel <= 4) return 90;
+  if (safeLevel <= 6) return 80;
+  if (safeLevel <= 9) return 70;
+  if (safeLevel <= 12) return 60;
+  return 50;
+};
+
+const getEffectiveBudgetMultiplier = (settings, level) => {
+  if ((settings?.budgetMultiplierMode || 'manual') === 'auto') {
+    return getSuggestedBudgetMultiplier(level);
+  }
+  return settings?.budgetMultiplier ?? 1.0;
+};
+
+const getEffectiveXpAwardPercent = (settings, level) => {
+  if ((settings?.xpAwardMode || 'manual') === 'auto') {
+    return getSuggestedXpAwardPercent(level);
+  }
+  return settings?.xpAwardPercent ?? 50;
+};
+
 const getEncounterDifficulty = (adjustedXp, thresholds) => {
     if (thresholds.deadly === 0) return { level: 'unknown', percentage: 0 };
 
@@ -286,6 +317,24 @@ const RangeInput = (props) => (
     ...props
   })
 );
+
+const RangeInputWithGhost = ({ suggestedValue, min, max, ...props }) => {
+  const minNumber = parseFloat(min);
+  const maxNumber = parseFloat(max);
+  const suggestedNumber = parseFloat(suggestedValue);
+  const hasValidMarker = Number.isFinite(minNumber) && Number.isFinite(maxNumber) && Number.isFinite(suggestedNumber) && maxNumber > minNumber;
+  const clampedSuggested = hasValidMarker ? Math.max(minNumber, Math.min(maxNumber, suggestedNumber)) : minNumber;
+  const markerLeft = hasValidMarker ? ((clampedSuggested - minNumber) / (maxNumber - minNumber)) * 100 : 0;
+
+  return React.createElement('div', { className: "relative flex-1 flex items-center h-6" },
+    hasValidMarker && React.createElement('div', {
+      className: "absolute top-1/2 w-5 h-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[#c99a4e]/70 bg-[#c99a4e]/20 pointer-events-none z-10 shadow-sm",
+      style: { left: `${markerLeft}%` },
+      title: `Suggested: ${suggestedValue}`
+    }),
+    React.createElement(RangeInput, { min, max, ...props })
+  );
+};
 
 const DragHandleIcon = () => (
     React.createElement('svg', { xmlns: "http://www.w3.org/2000/svg", width: "20", height: "20", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" },
@@ -901,7 +950,15 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
   const { trivial, easy, medium, hard, deadly } = encounterThresholds;
   const baseThresholds = xpTable[party.level];
   const baseDailyPerPlayer = baseThresholds ? baseThresholds.high * 3 : 0;
-  const xpAwardPercent = settings.xpAwardPercent ?? 50;
+  const suggestedBudgetMultiplier = getSuggestedBudgetMultiplier(party.level);
+  const suggestedXpAwardPercent = getSuggestedXpAwardPercent(party.level);
+  const budgetMultiplierMode = settings.budgetMultiplierMode || 'manual';
+  const xpAwardMode = settings.xpAwardMode || 'manual';
+  const effectiveBudgetMultiplier = getEffectiveBudgetMultiplier(settings, party.level);
+  const xpAwardPercent = getEffectiveXpAwardPercent(settings, party.level);
+  const isBudgetAuto = budgetMultiplierMode === 'auto';
+  const isXpAwardAuto = xpAwardMode === 'auto';
+  const effectiveDailyPerPlayer = Math.round(baseDailyPerPlayer * effectiveBudgetMultiplier);
   
   return (
     React.createElement(React.Fragment, null,
@@ -917,26 +974,54 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
         ),
 
         React.createElement('div', { className: "mt-6" },
-          React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d] mb-2" }, "Budget Multiplier"),
+          React.createElement('div', { className: "flex justify-between items-center gap-2 mb-2" },
+            React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d]" }, "Budget Multiplier"),
+            React.createElement('div', { className: "flex items-center gap-2" },
+              React.createElement('span', { className: `text-xs font-bold px-2 py-0.5 border rounded-sm ${isBudgetAuto ? 'text-green-700 dark:text-green-400 border-green-700/40 bg-green-700/10' : 'text-amber-700 dark:text-amber-400 border-amber-700/40 bg-amber-700/10'}` }, isBudgetAuto ? "AUTO" : "MANUAL"),
+              React.createElement('button', {
+                onClick: () => onSettingsChange({ budgetMultiplierMode: 'auto', budgetMultiplier: suggestedBudgetMultiplier }),
+                disabled: isBudgetAuto,
+                className: "text-xs font-bold px-2 py-1 border-2 border-[#c99a4e]/50 text-[#c99a4e] rounded-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#c99a4e]/20"
+              }, "Use Suggested")
+            )
+          ),
           React.createElement('div', { className: "flex items-center gap-3" },
-            React.createElement(RangeInput, {
+            React.createElement(RangeInputWithGhost, {
               min: "0.5", max: "2", step: "0.05",
-              value: settings.budgetMultiplier,
-              onChange: e => onSettingsChange({ budgetMultiplier: parseFloat(e.target.value) })
+              value: effectiveBudgetMultiplier,
+              suggestedValue: suggestedBudgetMultiplier,
+              onChange: e => onSettingsChange({ budgetMultiplier: parseFloat(e.target.value), budgetMultiplierMode: 'manual' })
             }),
-            React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, settings.budgetMultiplier.toFixed(2))
+            React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, effectiveBudgetMultiplier.toFixed(2))
+          ),
+          React.createElement('div', { className: "mt-1 text-xs text-slate-600 dark:text-slate-400" },
+            `Suggested for Level ${party.level}: ${suggestedBudgetMultiplier.toFixed(2)}`
           )
         ),
 
         React.createElement('div', { className: "mt-6" },
-          React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d] mb-2" }, "Player XP Award %"),
+          React.createElement('div', { className: "flex justify-between items-center gap-2 mb-2" },
+            React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d]" }, "Player XP Award %"),
+            React.createElement('div', { className: "flex items-center gap-2" },
+              React.createElement('span', { className: `text-xs font-bold px-2 py-0.5 border rounded-sm ${isXpAwardAuto ? 'text-green-700 dark:text-green-400 border-green-700/40 bg-green-700/10' : 'text-amber-700 dark:text-amber-400 border-amber-700/40 bg-amber-700/10'}` }, isXpAwardAuto ? "AUTO" : "MANUAL"),
+              React.createElement('button', {
+                onClick: () => onSettingsChange({ xpAwardMode: 'auto', xpAwardPercent: suggestedXpAwardPercent }),
+                disabled: isXpAwardAuto,
+                className: "text-xs font-bold px-2 py-1 border-2 border-[#c99a4e]/50 text-[#c99a4e] rounded-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#c99a4e]/20"
+              }, "Use Suggested")
+            )
+          ),
           React.createElement('div', { className: "flex items-center gap-3" },
-            React.createElement(RangeInput, {
+            React.createElement(RangeInputWithGhost, {
               min: "25", max: "100", step: "5",
               value: xpAwardPercent,
-              onChange: e => onSettingsChange({ xpAwardPercent: parseInt(e.target.value) })
+              suggestedValue: suggestedXpAwardPercent,
+              onChange: e => onSettingsChange({ xpAwardPercent: parseInt(e.target.value), xpAwardMode: 'manual' })
             }),
             React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, `${xpAwardPercent}%`)
+          ),
+          React.createElement('div', { className: "mt-1 text-xs text-slate-600 dark:text-slate-400" },
+            `Suggested for Level ${party.level}: ${suggestedXpAwardPercent}%`
           )
         ),
 
@@ -975,13 +1060,17 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
                   React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Budget/Player:"),
                   React.createElement('br'),
                   React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${baseDailyPerPlayer.toLocaleString()} XP`),
-                  settings.budgetMultiplier !== 1 && ` → `,
-                  settings.budgetMultiplier !== 1 && React.createElement('span', { className: "text-[#c99a4e] font-bold" }, `${(baseDailyPerPlayer * settings.budgetMultiplier).toLocaleString()} XP`)
+                  effectiveBudgetMultiplier !== 1 && ` → `,
+                  effectiveBudgetMultiplier !== 1 && React.createElement('span', { className: "text-[#c99a4e] font-bold" }, `${effectiveDailyPerPlayer.toLocaleString()} XP`),
+                  React.createElement('br'),
+                  React.createElement('span', { className: "text-xs text-slate-500" }, `Mode: ${isBudgetAuto ? 'Auto' : 'Manual'} | Suggested: ${suggestedBudgetMultiplier.toFixed(2)}`)
               ),
               React.createElement('div', { className: "leading-relaxed" },
                   React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Player XP Award:"),
                   React.createElement('br'),
-                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Base XP ÷ Party Size`)
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Base XP ÷ Party Size`),
+                  React.createElement('br'),
+                  React.createElement('span', { className: "text-xs text-slate-500" }, `Mode: ${isXpAwardAuto ? 'Auto' : 'Manual'} | Suggested: ${suggestedXpAwardPercent}%`)
               ),
               React.createElement('div', { className: "leading-relaxed" },
                 React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Encounter Difficulties:"),
@@ -1015,7 +1104,14 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
 
 const initialAppState = {
   party: { size: 4, level: 1 },
-  settings: { budgetMultiplier: 1.0, globalOverhangPercent: 10, minOverhangPercent: 0, xpAwardPercent: 50 },
+  settings: {
+    budgetMultiplier: 1.0,
+    budgetMultiplierMode: 'auto',
+    globalOverhangPercent: 10,
+    minOverhangPercent: 0,
+    xpAwardPercent: 50,
+    xpAwardMode: 'auto',
+  },
   days: [],
   xpThresholdsTable: XP_THRESHOLDS_PER_LEVEL,
 };
@@ -1027,11 +1123,23 @@ const createNewSaveSlot = (appState, name) => ({
     appState: normalizeAppState(appState),
 });
 
+const normalizeSettings = (settings = {}) => {
+  const hasBudgetMode = Object.prototype.hasOwnProperty.call(settings, 'budgetMultiplierMode');
+  const hasXpAwardMode = Object.prototype.hasOwnProperty.call(settings, 'xpAwardMode');
+
+  return {
+    ...initialAppState.settings,
+    ...settings,
+    budgetMultiplierMode: hasBudgetMode ? settings.budgetMultiplierMode : 'manual',
+    xpAwardMode: hasXpAwardMode ? settings.xpAwardMode : 'manual',
+  };
+};
+
 const normalizeAppState = (appState = {}) => ({
   ...initialAppState,
   ...appState,
   party: { ...initialAppState.party, ...(appState.party || {}) },
-  settings: { ...initialAppState.settings, ...(appState.settings || {}) },
+  settings: normalizeSettings(appState.settings || {}),
   days: Array.isArray(appState.days) ? appState.days : [],
   xpThresholdsTable: appState.xpThresholdsTable || initialAppState.xpThresholdsTable,
 });
@@ -1178,8 +1286,10 @@ function App() {
     // which was the source of the race condition.
   }, [state]);
 
-  const dailyBudget = useMemo(() => calculateDailyBudget(party, settings.budgetMultiplier, xpThresholdsTable), [party, settings.budgetMultiplier, xpThresholdsTable]);
-  const encounterThresholds = useMemo(() => calculateEncounterThresholds(party, settings.budgetMultiplier, xpThresholdsTable), [party, settings.budgetMultiplier, xpThresholdsTable]);
+  const effectiveBudgetMultiplier = useMemo(() => getEffectiveBudgetMultiplier(settings, party.level), [settings, party.level]);
+  const effectiveXpAwardPercent = useMemo(() => getEffectiveXpAwardPercent(settings, party.level), [settings, party.level]);
+  const dailyBudget = useMemo(() => calculateDailyBudget(party, effectiveBudgetMultiplier, xpThresholdsTable), [party, effectiveBudgetMultiplier, xpThresholdsTable]);
+  const encounterThresholds = useMemo(() => calculateEncounterThresholds(party, effectiveBudgetMultiplier, xpThresholdsTable), [party, effectiveBudgetMultiplier, xpThresholdsTable]);
 
   const updateParty = useCallback((newParty) => {
     setState({ ...state, party: { ...party, ...newParty } });
@@ -1455,7 +1565,7 @@ function App() {
                 dailyBudget: dailyBudget,
                 globalOverhangPercent: settings.globalOverhangPercent,
                 minOverhangPercent: settings.minOverhangPercent,
-                xpAwardPercent: settings.xpAwardPercent ?? 50,
+                xpAwardPercent: effectiveXpAwardPercent,
                 partySize: party.size,
                 encounterThresholds: encounterThresholds,
                 onUpdateDay: updateDay,
