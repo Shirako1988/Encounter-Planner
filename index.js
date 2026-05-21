@@ -389,6 +389,51 @@ const FormRow = ({ children }) => (
   React.createElement('div', { className: "flex gap-3 items-end" }, children)
 );
 
+const GlobalUiStyles = () => React.createElement('style', null, `
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(201, 154, 78, 0.68) rgba(209, 199, 184, 0.30);
+    scrollbar-gutter: stable;
+  }
+
+  .dark .custom-scrollbar {
+    scrollbar-color: rgba(201, 154, 78, 0.78) rgba(74, 74, 74, 0.55);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(209, 199, 184, 0.30);
+    border-radius: 999px;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(74, 74, 74, 0.55);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(201, 154, 78, 0.68);
+    border: 2px solid rgba(243, 234, 221, 0.95);
+    border-radius: 999px;
+  }
+
+  .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(201, 154, 78, 0.78);
+    border-color: rgba(42, 42, 42, 0.95);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(201, 154, 78, 0.95);
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+`);
+
 const RangeInput = (props) => (
   React.createElement('input', {
     type: "range",
@@ -555,7 +600,7 @@ const SaveManagerModal = ({ isOpen, onClose, saveData, onLoad, onSaveNew, onDele
                     React.createElement('button', { onClick: onClose, className: "text-3xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-[#c99a4e]" }, "×")
                 ),
 
-                React.createElement('div', { className: "p-4 overflow-y-auto" },
+                React.createElement('div', { className: "p-4 overflow-y-auto custom-scrollbar" },
                     React.createElement('div', { className: "grid grid-cols-2 gap-3 mb-4" },
                         React.createElement('button', { onClick: onSaveNew, className: "w-full bg-transparent border-2 border-[#c99a4e]/50 text-[#c99a4e] font-bold py-2.5 px-4 rounded-sm transition-colors hover:bg-[#c99a4e]/20" },
                             "+ Neuer Speicherstand"
@@ -1779,6 +1824,7 @@ function App() {
 
   return (
     React.createElement('div', { className: "max-w-[1800px] h-[calc(100vh-48px)] mx-auto flex flex-col overflow-hidden" },
+      React.createElement(GlobalUiStyles, null),
       React.createElement('header', { className: "flex justify-between items-start sm:items-center mb-4" },
         React.createElement('div', null,
           React.createElement('h1', { className: "text-3xl sm:text-4xl font-bold text-[#6d4f33] dark:text-[#d4c8b0]" }, "Encounter Planner"),
@@ -1796,7 +1842,7 @@ function App() {
         )
       ),
       React.createElement('main', { className: "grid grid-cols-1 lg:grid-cols-[400px_minmax(0,1fr)] gap-6 flex-1 min-h-0" },
-        React.createElement('aside', { className: "flex flex-col gap-6 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-2" },
+        React.createElement('aside', { className: "flex flex-col gap-6 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-2 custom-scrollbar" },
           React.createElement(PartySetup, { 
             party: party, 
             settings: settings,
@@ -1810,8 +1856,8 @@ function App() {
           })
         ),
 
-        React.createElement('section', { className: "flex flex-col gap-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-2" },
-          React.createElement('button', { onClick: addDay, className: "sticky top-0 z-20 w-full bg-[#c99a4e] text-[#f3eadd] font-bold py-3 px-4 rounded-sm text-lg transition-transform hover:scale-[1.02] border-2 border-[#ab813e] shadow-md" },
+        React.createElement('section', { className: "flex flex-col gap-4 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pr-2 custom-scrollbar" },
+          React.createElement('button', { onClick: addDay, className: "sticky top-0 z-20 w-full bg-[#c99a4e] text-[#f3eadd] font-bold py-3 px-4 rounded-sm text-lg transition-colors hover:bg-[#d6a658] border-2 border-[#ab813e] shadow-md hover:shadow-lg" },
             "+ Add Adventuring Day"
           ),
           React.createElement('div', { className: "flex flex-col gap-6" },
