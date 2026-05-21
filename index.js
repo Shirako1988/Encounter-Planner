@@ -92,22 +92,101 @@ const DIFFICULTY_TEXT_COLORS = {
 // SERVICES (from services/xpCalculations.ts)
 // =================================================================================
 
+const clampLevel = (level) => Math.max(1, Math.min(20, parseInt(level, 10) || 1));
+
+const createDefaultPlayers = (size = 4, level = 1) => {
+  const safeSize = Math.max(1, Math.min(20, parseInt(size, 10) || 4));
+  const safeLevel = clampLevel(level);
+  return Array.from({ length: safeSize }, (_, index) => ({
+    id: crypto.randomUUID(),
+    name: `Player ${index + 1}`,
+    level: safeLevel,
+  }));
+};
+
+const getPartyPlayers = (party = {}) => {
+  if (Array.isArray(party.players) && party.players.length > 0) {
+    return party.players.map((player, index) => ({
+      id: player.id || crypto.randomUUID(),
+      name: player.name || `Player ${index + 1}`,
+      level: clampLevel(player.level),
+    }));
+  }
+  return createDefaultPlayers(party.size || 4, party.level || 1);
+};
+
+const getPartyPlayerCount = (party = {}) => getPartyPlayers(party).length;
+
+const getAveragePartyLevel = (party = {}) => {
+  const players = getPartyPlayers(party);
+  if (players.length === 0) return 1;
+  const total = players.reduce((sum, player) => sum + clampLevel(player.level), 0);
+  return total / players.length;
+};
+
+const getEffectiveBudgetLevel = (party = {}) => {
+  if (party.levelOverride !== null && party.levelOverride !== undefined && party.levelOverride !== '') {
+    return clampLevel(party.levelOverride);
+  }
+  return clampLevel(Math.round(getAveragePartyLevel(party)));
+};
+
+const getXpShares = (party = {}) => {
+  const hirelings = Math.max(0, parseInt(party.hirelings, 10) || 0);
+  return Math.max(1, getPartyPlayerCount(party) + hirelings);
+};
+
 const calculateEncounterThresholds = (party, multiplier, xpTable) => {
-  const t = xpTable[party.level];
-  if (!t) return { trivial: 0, easy: 0, medium: 0, hard: 0, deadly: 0 };
+  const players = getPartyPlayers(party);
+  const mode = party?.budgetMode || 'average';
+  const safeMultiplier = multiplier ?? 1;
+
+  if (mode === 'sum') {
+    const summed = players.reduce((totals, player) => {
+      const t = xpTable[clampLevel(player.level)];
+      if (!t) return totals;
+      return {
+        low: totals.low + t.low,
+        moderate: totals.moderate + t.moderate,
+        high: totals.high + t.high,
+      };
+    }, { low: 0, moderate: 0, high: 0 });
+
+    return {
+      trivial: Math.round(summed.low * 0.5 * safeMultiplier),
+      easy: Math.round(summed.low * safeMultiplier),
+      medium: Math.round(summed.moderate * safeMultiplier),
+      hard: Math.round(summed.high * safeMultiplier),
+      deadly: Math.round(summed.high * 1.5 * safeMultiplier),
+    };
+  }
+
+  const effectiveLevel = getEffectiveBudgetLevel(party);
+  const t = xpTable[effectiveLevel];
+  const playerCount = players.length;
+  if (!t || playerCount < 1) return { trivial: 0, easy: 0, medium: 0, hard: 0, deadly: 0 };
 
   return {
-    trivial: Math.round(t.low * 0.5 * party.size * multiplier),
-    easy: Math.round(t.low * party.size * multiplier),
-    medium: Math.round(t.moderate * party.size * multiplier),
-    hard: Math.round(t.high * party.size * multiplier),
-    deadly: Math.round(t.high * 1.5 * party.size * multiplier),
+    trivial: Math.round(t.low * 0.5 * playerCount * safeMultiplier),
+    easy: Math.round(t.low * playerCount * safeMultiplier),
+    medium: Math.round(t.moderate * playerCount * safeMultiplier),
+    hard: Math.round(t.high * playerCount * safeMultiplier),
+    deadly: Math.round(t.high * 1.5 * playerCount * safeMultiplier),
   };
 };
 
 const calculateDailyBudget = (party, multiplier, xpTable) => {
-  const highXP = xpTable[party.level]?.high || 0;
-  return Math.round(party.size * highXP * 3 * multiplier);
+  const players = getPartyPlayers(party);
+  const mode = party?.budgetMode || 'average';
+  const safeMultiplier = multiplier ?? 1;
+
+  if (mode === 'sum') {
+    const highTotal = players.reduce((sum, player) => sum + (xpTable[clampLevel(player.level)]?.high || 0), 0);
+    return Math.round(highTotal * 3 * safeMultiplier);
+  }
+
+  const highXP = xpTable[getEffectiveBudgetLevel(party)]?.high || 0;
+  return Math.round(players.length * highXP * 3 * safeMultiplier);
 };
 
 const calculateAdjustedXp = (baseXp, count, overhangPercent) => {
@@ -120,10 +199,10 @@ const calculateAdjustedXp = (baseXp, count, overhangPercent) => {
   return baseXp;
 };
 
-const calculatePlayerXpAward = (baseXp, partySize, awardPercent) => {
-  const safePartySize = Math.max(1, partySize || 1);
+const calculatePlayerXpAward = (baseXp, xpShares, awardPercent) => {
+  const safeShares = Math.max(1, xpShares || 1);
   const safeAwardPercent = awardPercent ?? 50;
-  return Math.round((baseXp * (safeAwardPercent / 100)) / safePartySize);
+  return Math.round((baseXp * (safeAwardPercent / 100)) / safeShares);
 };
 
 const getSuggestedBudgetMultiplier = (level) => {
@@ -601,7 +680,7 @@ const EncounterCard = ({
   globalOverhangPercent,
   minOverhangPercent,
   xpAwardPercent,
-  partySize,
+  xpShares,
   encounterThresholds,
   onUpdate,
   onDelete,
@@ -661,8 +740,8 @@ const EncounterCard = ({
   );
 
   const playerXpAward = useMemo(() =>
-    calculatePlayerXpAward(derivedBaseXp, partySize, xpAwardPercent),
-    [derivedBaseXp, partySize, xpAwardPercent]
+    calculatePlayerXpAward(derivedBaseXp, xpShares, xpAwardPercent),
+    [derivedBaseXp, xpShares, xpAwardPercent]
   );
 
   const [creatureToDelete, setCreatureToDelete] = useState(null);
@@ -754,7 +833,7 @@ const EncounterCard = ({
         creatures.length === 0 && React.createElement(FormGroup, { label: "Count", isEncounter: true },
           React.createElement(NumberInput, { isEncounter: true, min: "1", value: derivedCount, onChange: e => onUpdate({ count: parseInt(e.target.value) || 1 }) })
         ),
-        React.createElement(FormGroup, { label: "XP / Player", title: `${xpAwardPercent ?? 50}% of Base XP ÷ ${Math.max(1, partySize || 1)} players`, isEncounter: true },
+        React.createElement(FormGroup, { label: "XP / Share", title: `${xpAwardPercent ?? 50}% of Base XP ÷ ${Math.max(1, xpShares || 1)} XP shares`, isEncounter: true },
           React.createElement('div', { className: "h-[38px] flex items-center justify-center text-base font-bold text-[#c99a4e] bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 rounded px-2 py-1.5" },
             playerXpAward.toLocaleString()
           )
@@ -823,7 +902,7 @@ const AdventuringDay = ({
   globalOverhangPercent,
   minOverhangPercent,
   xpAwardPercent,
-  partySize,
+  xpShares,
   encounterThresholds,
   onUpdateDay,
   onDeleteDay,
@@ -957,7 +1036,7 @@ const AdventuringDay = ({
             globalOverhangPercent: globalOverhangPercent,
             minOverhangPercent: minOverhangPercent,
             xpAwardPercent: xpAwardPercent,
-            partySize: partySize,
+            xpShares: xpShares,
             encounterThresholds: encounterThresholds,
             onUpdate: updatedEncounter => onUpdateEncounter(day.id, encounter.id, updatedEncounter),
             onDelete: () => onDeleteEncounter(day.id, encounter.id),
@@ -985,28 +1064,138 @@ const AdventuringDay = ({
 // --- PartySetup.tsx ---
 const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable, onPartyChange, onSettingsChange, onXpTableUpdate, onXpTableReset }) => {
   const { trivial, easy, medium, hard, deadly } = encounterThresholds;
-  const baseThresholds = xpTable[party.level];
+  const players = getPartyPlayers(party);
+  const playerCount = players.length;
+  const hirelings = Math.max(0, parseInt(party.hirelings, 10) || 0);
+  const xpShares = getXpShares(party);
+  const averageLevel = getAveragePartyLevel(party);
+  const effectiveBudgetLevel = getEffectiveBudgetLevel(party);
+  const budgetMode = party.budgetMode || 'average';
+  const hasLevelOverride = party.levelOverride !== null && party.levelOverride !== undefined && party.levelOverride !== '';
+  const baseThresholds = xpTable[effectiveBudgetLevel];
   const baseDailyPerPlayer = baseThresholds ? baseThresholds.high * 3 : 0;
-  const suggestedBudgetMultiplier = getSuggestedBudgetMultiplier(party.level);
-  const suggestedXpAwardPercent = getSuggestedXpAwardPercent(party.level);
+  const suggestedBudgetMultiplier = getSuggestedBudgetMultiplier(effectiveBudgetLevel);
+  const suggestedXpAwardPercent = getSuggestedXpAwardPercent(effectiveBudgetLevel);
   const budgetMultiplierMode = settings.budgetMultiplierMode || 'manual';
   const xpAwardMode = settings.xpAwardMode || 'manual';
-  const effectiveBudgetMultiplier = getEffectiveBudgetMultiplier(settings, party.level);
-  const xpAwardPercent = getEffectiveXpAwardPercent(settings, party.level);
+  const effectiveBudgetMultiplier = getEffectiveBudgetMultiplier(settings, effectiveBudgetLevel);
+  const xpAwardPercent = getEffectiveXpAwardPercent(settings, effectiveBudgetLevel);
   const isBudgetAuto = budgetMultiplierMode === 'auto';
   const isXpAwardAuto = xpAwardMode === 'auto';
   const effectiveDailyPerPlayer = Math.round(baseDailyPerPlayer * effectiveBudgetMultiplier);
+
+  const updatePlayer = (id, updates) => {
+    const nextPlayers = players.map(player => player.id === id ? { ...player, ...updates } : player);
+    onPartyChange({ players: nextPlayers });
+  };
+
+  const addPlayer = () => {
+    const fallbackLevel = effectiveBudgetLevel || 1;
+    onPartyChange({
+      players: [...players, { id: crypto.randomUUID(), name: `Player ${players.length + 1}`, level: fallbackLevel }]
+    });
+  };
+
+  const deletePlayer = (id) => {
+    if (players.length <= 1) return;
+    onPartyChange({ players: players.filter(player => player.id !== id) });
+  };
   
   return (
     React.createElement(React.Fragment, null,
       React.createElement(Panel, null,
         React.createElement('h3', { className: "m-0 mb-4 text-2xl font-bold text-[#c99a4e] font-medieval" }, "Party Setup"),
-        React.createElement(FormRow, null,
-          React.createElement(FormGroup, { label: "Anzahl Spieler" },
-            React.createElement(NumberInput, { min: "1", max: "10", value: party.size, onChange: e => onPartyChange({ size: parseInt(e.target.value) || 1 }) })
+
+        React.createElement('div', { className: "mb-5" },
+          React.createElement('div', { className: "flex justify-between items-center mb-2" },
+            React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d]" }, "Players"),
+            React.createElement('button', { onClick: addPlayer, className: "text-sm text-[#c99a4e] font-bold hover:underline" }, "+ Add Player")
           ),
-          React.createElement(FormGroup, { label: "Party Level" },
-            React.createElement(NumberInput, { min: "1", max: "20", value: party.level, onChange: e => onPartyChange({ level: parseInt(e.target.value) || 1 }) })
+          React.createElement('div', { className: "space-y-2" },
+            players.map((player, index) => (
+              React.createElement('div', { key: player.id, className: "flex items-center gap-2" },
+                React.createElement('input', {
+                  type: "text",
+                  value: player.name,
+                  onChange: e => updatePlayer(player.id, { name: e.target.value }),
+                  placeholder: `Player ${index + 1}`,
+                  className: "flex-1 bg-[#eee3cf] dark:bg-[#2f2f2f] text-[#4a2e1a] dark:text-[#d4c8b0] border-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 rounded focus:outline-none focus:border-[#c99a4e]"
+                }),
+                React.createElement('div', { className: "w-20" },
+                  React.createElement(NumberInput, {
+                    min: "1", max: "20",
+                    value: player.level,
+                    onChange: e => updatePlayer(player.id, { level: clampLevel(e.target.value) })
+                  })
+                ),
+                React.createElement('button', {
+                  onClick: () => deletePlayer(player.id),
+                  disabled: players.length <= 1,
+                  className: "text-red-700 dark:text-red-500 font-bold px-2 py-1 hover:bg-red-800/20 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                }, "×")
+              )
+            ))
+          )
+        ),
+
+        React.createElement(FormRow, null,
+          React.createElement(FormGroup, { label: "Hirelings / Mercs XP Shares" },
+            React.createElement(NumberInput, {
+              min: "0", max: "99",
+              value: hirelings,
+              onChange: e => onPartyChange({ hirelings: Math.max(0, parseInt(e.target.value) || 0) })
+            })
+          ),
+          React.createElement(FormGroup, { label: "Budget Level Override" },
+            React.createElement(NumberInput, {
+              min: "1", max: "20",
+              value: party.levelOverride ?? '',
+              placeholder: `Auto ${effectiveBudgetLevel}`,
+              onChange: e => onPartyChange({ levelOverride: e.target.value === '' ? null : clampLevel(e.target.value) })
+            })
+          )
+        ),
+
+        React.createElement('div', { className: "mt-5" },
+          React.createElement('label', { className: "block text-base font-bold text-[#6d4f33] dark:text-[#a38b6d] mb-2" }, "Budget Mode"),
+          React.createElement('div', { className: "grid grid-cols-2 gap-2" },
+            React.createElement('button', {
+              onClick: () => onPartyChange({ budgetMode: 'average' }),
+              className: `font-bold py-2 px-3 rounded-sm border-2 transition-colors ${budgetMode === 'average' ? 'bg-[#c99a4e] border-[#ab813e] text-[#f3eadd]' : 'bg-transparent border-[#c99a4e]/50 text-[#c99a4e] hover:bg-[#c99a4e]/20'}`
+            }, "Average Level"),
+            React.createElement('button', {
+              onClick: () => onPartyChange({ budgetMode: 'sum' }),
+              className: `font-bold py-2 px-3 rounded-sm border-2 transition-colors ${budgetMode === 'sum' ? 'bg-[#c99a4e] border-[#ab813e] text-[#f3eadd]' : 'bg-transparent border-[#c99a4e]/50 text-[#c99a4e] hover:bg-[#c99a4e]/20'}`
+            }, "Sum Levels")
+          ),
+          React.createElement('div', { className: "mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed" },
+            budgetMode === 'average'
+              ? "Budget uses Effective Budget Level × player count. Good for mixed-level parties where low-level replacement characters should still matter."
+              : "Budget sums each player's real level threshold. More RAW-like, but harsher for very low-level replacement characters."
+          )
+        ),
+
+        React.createElement('div', { className: "grid grid-cols-2 gap-2 mt-5 text-sm" },
+          React.createElement('div', { className: "bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 p-2" },
+            React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Players"),
+            React.createElement('br'),
+            React.createElement('span', { className: "text-[#c99a4e] font-bold" }, playerCount)
+          ),
+          React.createElement('div', { className: "bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 p-2" },
+            React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "XP Shares"),
+            React.createElement('br'),
+            React.createElement('span', { className: "text-[#c99a4e] font-bold" }, xpShares)
+          ),
+          React.createElement('div', { className: "bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 p-2" },
+            React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Average Level"),
+            React.createElement('br'),
+            React.createElement('span', { className: "text-[#c99a4e] font-bold" }, averageLevel.toFixed(2))
+          ),
+          React.createElement('div', { className: "bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 p-2" },
+            React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Effective Level"),
+            React.createElement('br'),
+            React.createElement('span', { className: "text-[#c99a4e] font-bold" }, effectiveBudgetLevel),
+            hasLevelOverride && React.createElement('span', { className: "ml-1 text-xs text-amber-700 dark:text-amber-400" }, "Override")
           )
         ),
 
@@ -1032,7 +1221,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
             React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, effectiveBudgetMultiplier.toFixed(2))
           ),
           React.createElement('div', { className: "mt-1 text-xs text-slate-600 dark:text-slate-400" },
-            `Suggested for Level ${party.level}: ${suggestedBudgetMultiplier.toFixed(2)}`
+            `Suggested for Effective Level ${effectiveBudgetLevel}: ${suggestedBudgetMultiplier.toFixed(2)}`
           )
         ),
 
@@ -1058,7 +1247,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
             React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, `${xpAwardPercent}%`)
           ),
           React.createElement('div', { className: "mt-1 text-xs text-slate-600 dark:text-slate-400" },
-            `Suggested for Level ${party.level}: ${suggestedXpAwardPercent}%`
+            `Suggested for Effective Level ${effectiveBudgetLevel}: ${suggestedXpAwardPercent}%`
           )
         ),
 
@@ -1094,18 +1283,16 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
           React.createElement('h4', { className: "m-0 mb-3 text-xl font-bold text-[#c99a4e] font-medieval" }, "XP Information"),
           React.createElement('div', { className: "text-base space-y-3" },
               React.createElement('div', { className: "leading-relaxed" },
-                  React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Budget/Player:"),
+                  React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Budget Basis:"),
                   React.createElement('br'),
-                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${baseDailyPerPlayer.toLocaleString()} XP`),
-                  effectiveBudgetMultiplier !== 1 && ` → `,
-                  effectiveBudgetMultiplier !== 1 && React.createElement('span', { className: "text-[#c99a4e] font-bold" }, `${effectiveDailyPerPlayer.toLocaleString()} XP`),
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, budgetMode === 'average' ? `Average Mode: Level ${effectiveBudgetLevel} × ${playerCount} players` : `Sum Mode: ${playerCount} individual player levels`),
                   React.createElement('br'),
-                  React.createElement('span', { className: "text-xs text-slate-500" }, `Mode: ${isBudgetAuto ? 'Auto' : 'Manual'} | Suggested: ${suggestedBudgetMultiplier.toFixed(2)}`)
+                  React.createElement('span', { className: "text-xs text-slate-500" }, `Budget Multiplier: ${effectiveBudgetMultiplier.toFixed(2)} | Suggested: ${suggestedBudgetMultiplier.toFixed(2)}`)
               ),
               React.createElement('div', { className: "leading-relaxed" },
                   React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Player XP Award:"),
                   React.createElement('br'),
-                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Base XP ÷ Party Size`),
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Base XP ÷ ${xpShares} XP shares`),
                   React.createElement('br'),
                   React.createElement('span', { className: "text-xs text-slate-500" }, `Mode: ${isXpAwardAuto ? 'Auto' : 'Manual'} | Suggested: ${suggestedXpAwardPercent}%`)
               ),
@@ -1125,7 +1312,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
           )
       ),
       React.createElement(XpMatrix, { 
-        level: party.level,
+        level: effectiveBudgetLevel,
         xpTable: xpTable,
         onUpdate: onXpTableUpdate,
         onReset: onXpTableReset
@@ -1140,7 +1327,12 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
 // =================================================================================
 
 const initialAppState = {
-  party: { size: 4, level: 1 },
+  party: {
+    players: createDefaultPlayers(4, 1),
+    hirelings: 0,
+    budgetMode: 'average',
+    levelOverride: null,
+  },
   settings: {
     budgetMultiplier: 1.0,
     budgetMultiplierMode: 'auto',
@@ -1172,10 +1364,22 @@ const normalizeSettings = (settings = {}) => {
   };
 };
 
+const normalizeParty = (party = {}) => {
+  const players = getPartyPlayers(party);
+  return {
+    ...initialAppState.party,
+    ...party,
+    players,
+    hirelings: Math.max(0, parseInt(party.hirelings, 10) || 0),
+    budgetMode: party.budgetMode === 'sum' ? 'sum' : 'average',
+    levelOverride: party.levelOverride === '' || party.levelOverride === undefined ? null : party.levelOverride,
+  };
+};
+
 const normalizeAppState = (appState = {}) => ({
   ...initialAppState,
   ...appState,
-  party: { ...initialAppState.party, ...(appState.party || {}) },
+  party: normalizeParty(appState.party || {}),
   settings: normalizeSettings(appState.settings || {}),
   days: Array.isArray(appState.days) ? appState.days : [],
   xpThresholdsTable: appState.xpThresholdsTable || initialAppState.xpThresholdsTable,
@@ -1324,8 +1528,10 @@ function App() {
     // which was the source of the race condition.
   }, [state]);
 
-  const effectiveBudgetMultiplier = useMemo(() => getEffectiveBudgetMultiplier(settings, party.level), [settings, party.level]);
-  const effectiveXpAwardPercent = useMemo(() => getEffectiveXpAwardPercent(settings, party.level), [settings, party.level]);
+  const effectiveBudgetLevel = useMemo(() => getEffectiveBudgetLevel(party), [party]);
+  const xpShares = useMemo(() => getXpShares(party), [party]);
+  const effectiveBudgetMultiplier = useMemo(() => getEffectiveBudgetMultiplier(settings, effectiveBudgetLevel), [settings, effectiveBudgetLevel]);
+  const effectiveXpAwardPercent = useMemo(() => getEffectiveXpAwardPercent(settings, effectiveBudgetLevel), [settings, effectiveBudgetLevel]);
   const dailyBudget = useMemo(() => calculateDailyBudget(party, effectiveBudgetMultiplier, xpThresholdsTable), [party, effectiveBudgetMultiplier, xpThresholdsTable]);
   const encounterThresholds = useMemo(() => calculateEncounterThresholds(party, effectiveBudgetMultiplier, xpThresholdsTable), [party, effectiveBudgetMultiplier, xpThresholdsTable]);
 
@@ -1617,7 +1823,7 @@ function App() {
                 globalOverhangPercent: settings.globalOverhangPercent,
                 minOverhangPercent: settings.minOverhangPercent,
                 xpAwardPercent: effectiveXpAwardPercent,
-                partySize: party.size,
+                xpShares: xpShares,
                 encounterThresholds: encounterThresholds,
                 onUpdateDay: updateDay,
                 onDeleteDay: requestDeleteDay,
