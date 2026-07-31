@@ -493,23 +493,23 @@ const ConfirmDeleteModal = ({ isOpen, onClose, onConfirm, slotName }) => {
         React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4", onClick: onClose },
             React.createElement('div', { className: "bg-[#f3eadd] dark:bg-[#2a2a2a] border-4 border-[#d1c7b8] dark:border-[#4a4a4a] w-full max-w-md flex flex-col shadow-2xl", onClick: e => e.stopPropagation() },
                 React.createElement('header', { className: "flex justify-between items-center p-4 border-b-4 border-red-800/40" },
-                    React.createElement('h2', { className: "text-2xl font-bold font-medieval text-red-800 dark:text-red-500" }, "LÃ¶schen BestÃ¤tigen"),
-                    React.createElement('button', { onClick: onClose, className: "text-3xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-red-700" }, "Ã—")
+                    React.createElement('h2', { className: "text-2xl font-bold font-medieval text-red-800 dark:text-red-500" }, "L\u00F6schen Best\u00E4tigen"),
+                    React.createElement('button', { onClick: onClose, className: "text-3xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-red-700" }, "\u00D7")
                 ),
                 React.createElement('div', { className: "p-6 text-center" },
                     React.createElement('p', { className: "text-lg text-[#6d4f33] dark:text-[#d4c8b0]" },
                         "Sind Sie sicher, dass Sie den Speicherstand ",
                         React.createElement('br'),
-                        React.createElement('strong', { className: "font-bold text-[#c99a4e]" }, slotName), " endgÃ¼ltig lÃ¶schen mÃ¶chten?"
+                        React.createElement('strong', { className: "font-bold text-[#c99a4e]" }, slotName), " endg\u00FCltig l\u00F6schen m\u00F6chten?"
                     ),
-                    React.createElement('p', { className: "text-sm text-slate-500 mt-2" }, "Diese Aktion kann nicht rÃ¼ckgÃ¤ngig gemacht werden.")
+                    React.createElement('p', { className: "text-sm text-slate-500 mt-2" }, "Diese Aktion kann nicht r\u00FCckg\u00E4ngig gemacht werden.")
                 ),
                 React.createElement('footer', { className: "flex justify-end gap-3 p-4 bg-[#eee3cf] dark:bg-[#2f2f2f]" },
                     React.createElement('button', { onClick: onClose, className: "bg-transparent border-2 border-slate-500 text-slate-600 dark:text-slate-400 font-bold py-2 px-6 rounded-sm transition-colors hover:bg-slate-500/20" },
                         "Abbrechen"
                     ),
                     React.createElement('button', { onClick: onConfirm, className: "bg-red-800 text-white font-bold py-2 px-6 rounded-sm transition-transform hover:scale-105 border-2 border-red-900" },
-                        "LÃ¶schen"
+                        "L\u00F6schen"
                     )
                 )
             )
@@ -526,17 +526,17 @@ const ConfirmDeleteDayModal = ({ isOpen, onClose, onConfirm, day }) => {
         React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4", onClick: onClose },
             React.createElement('div', { className: "bg-[#f3eadd] dark:bg-[#2a2a2a] border-4 border-[#d1c7b8] dark:border-[#4a4a4a] w-full max-w-md flex flex-col shadow-2xl", onClick: e => e.stopPropagation() },
                 React.createElement('header', { className: "flex justify-between items-center p-4 border-b-4 border-red-800/40" },
-                    React.createElement('h2', { className: "text-2xl font-bold font-medieval text-red-800 dark:text-red-500" }, "Delete Day bestÃ¤tigen"),
-                    React.createElement('button', { onClick: onClose, className: "text-3xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-red-700" }, "Ã—")
+                    React.createElement('h2', { className: "text-2xl font-bold font-medieval text-red-800 dark:text-red-500" }, "Delete Day best\u00E4tigen"),
+                    React.createElement('button', { onClick: onClose, className: "text-3xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-red-700" }, "\u00D7")
                 ),
                 React.createElement('div', { className: "p-6 text-center" },
                     React.createElement('p', { className: "text-lg text-[#6d4f33] dark:text-[#d4c8b0]" },
-                        "MÃ¶chten Sie diesen Adventuring Day wirklich lÃ¶schen?",
+                        "M\u00F6chten Sie diesen Adventuring Day wirklich l\u00F6schen?",
                         React.createElement('br'),
                         React.createElement('strong', { className: "font-bold text-[#c99a4e]" }, day.title || "Unnamed Day")
                     ),
                     React.createElement('p', { className: "text-sm text-slate-500 mt-2" },
-                        `${encounterCount} Encounter${encounterCount === 1 ? '' : 's'} werden ebenfalls gelÃ¶scht. Diese Aktion kann nicht rÃ¼ckgÃ¤ngig gemacht werden.`
+                        `${encounterCount} Encounter${encounterCount === 1 ? '' : 's'} werden ebenfalls gel\u00F6scht. Diese Aktion kann nicht r\u00FCckg\u00E4ngig gemacht werden.`
                     )
                 ),
                 React.createElement('footer', { className: "flex justify-end gap-3 p-4 bg-[#eee3cf] dark:bg-[#2f2f2f]" },
@@ -544,7 +544,7 @@ const ConfirmDeleteDayModal = ({ isOpen, onClose, onConfirm, day }) => {
                         "Abbrechen"
                     ),
                     React.createElement('button', { onClick: onConfirm, className: "bg-red-800 text-white font-bold py-2 px-6 rounded-sm transition-transform hover:scale-105 border-2 border-red-900" },
-                        "Day lÃ¶schen"
+                        "Day l\u00F6schen"
                     )
                 )
             )
@@ -596,8 +596,8 @@ const SaveManagerModal = ({ isOpen, onClose, saveData, onLoad, onSaveNew, onDele
         React.createElement('div', { className: "fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4", onClick: onClose },
             React.createElement('div', { className: "bg-[#f3eadd] dark:bg-[#2a2a2a] border-4 border-[#d1c7b8] dark:border-[#4a4a4a] w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl", onClick: e => e.stopPropagation() },
                 React.createElement('header', { className: "flex justify-between items-center p-4 border-b-4 border-[#c99a4e]/40" },
-                    React.createElement('h2', { className: "text-2xl font-bold font-medieval text-[#c99a4e]" }, "SpeicherstÃ¤nde Verwalten"),
-                    React.createElement('button', { onClick: onClose, className: "text-3xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-[#c99a4e]" }, "Ã—")
+                    React.createElement('h2', { className: "text-2xl font-bold font-medieval text-[#c99a4e]" }, "Speicherst\u00E4nde Verwalten"),
+                    React.createElement('button', { onClick: onClose, className: "text-3xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-[#c99a4e]" }, "\u00D7")
                 ),
 
                 React.createElement('div', { className: "p-4 overflow-y-auto custom-scrollbar" },
@@ -629,7 +629,7 @@ const SaveManagerModal = ({ isOpen, onClose, saveData, onLoad, onSaveNew, onDele
                                         React.createElement('h3', { className: "font-bold text-lg text-[#6d4f33] dark:text-[#d4c8b0]" }, slot.name)
                                     ),
                                     React.createElement('p', { className: "text-xs text-slate-500 dark:text-slate-400" },
-                                        `Zuletzt geÃ¤ndert: ${new Date(slot.lastModified).toLocaleString()}`
+                                        `Zuletzt ge\u00E4ndert: ${new Date(slot.lastModified).toLocaleString()}`
                                     )
                                 ),
                                 React.createElement('div', { className: "flex flex-wrap gap-1.5 justify-start sm:justify-end" },
@@ -637,7 +637,7 @@ const SaveManagerModal = ({ isOpen, onClose, saveData, onLoad, onSaveNew, onDele
                                     React.createElement('button', { onClick: () => handleRename(slot), className: "bg-sky-700 text-white px-2 py-1 text-xs font-bold rounded-sm" }, "Umbenennen"),
                                     React.createElement('button', { onClick: () => onCopy(slot.id), className: "bg-blue-700 text-white px-2 py-1 text-xs font-bold rounded-sm" }, "Kopieren"),
                                     React.createElement('button', { onClick: () => onExport(slot.id), className: "bg-amber-600 text-white px-2 py-1 text-xs font-bold rounded-sm" }, "Export"),
-                                    React.createElement('button', { onClick: () => onDelete(slot.id), className: "bg-red-800 text-white px-2 py-1 text-xs font-bold rounded-sm" }, "LÃ¶schen")
+                                    React.createElement('button', { onClick: () => onDelete(slot.id), className: "bg-red-800 text-white px-2 py-1 text-xs font-bold rounded-sm" }, "L\u00F6schen")
                                 )
                             )
                         ))
@@ -840,7 +840,7 @@ const EncounterCard = ({
           className: "bg-transparent border-b-2 border-[#d1c7b8] dark:border-[#4a4a4a] px-2 py-1.5 text-lg font-bold w-full focus:outline-none focus:border-[#c99a4e]",
           placeholder: "Encounter Name"
         }),
-        React.createElement('button', { onClick: onDelete, className: "bg-transparent border-2 border-red-800/50 text-red-700 dark:text-red-500 text-sm font-bold py-1 px-2.5 rounded-sm shrink-0 transition-colors hover:bg-red-800/20" }, "Ã—")
+        React.createElement('button', { onClick: onDelete, className: "bg-transparent border-2 border-red-800/50 text-red-700 dark:text-red-500 text-sm font-bold py-1 px-2.5 rounded-sm shrink-0 transition-colors hover:bg-red-800/20" }, "\u00D7")
       ),
       
       React.createElement('div', { className: "flex flex-col gap-2 sm:ml-8" },
@@ -863,7 +863,7 @@ const EncounterCard = ({
                 React.createElement('div', { className: "w-14 shrink-0" },
                   React.createElement(NumberInput, { isEncounter: true, min: "1", max: "99", value: c.count, onChange: e => updateCreature(c.id, { count: parseInt(e.target.value) || 1 }) })
                 ),
-                React.createElement('button', { onClick: () => confirmDeleteCreature(c.id), className: "text-red-700 dark:text-red-500 font-bold px-2 py-1 hover:bg-red-800/20 rounded shrink-0" }, "Ã—")
+                React.createElement('button', { onClick: () => confirmDeleteCreature(c.id), className: "text-red-700 dark:text-red-500 font-bold px-2 py-1 hover:bg-red-800/20 rounded shrink-0" }, "\u00D7")
               )
             )
           ))
@@ -878,7 +878,7 @@ const EncounterCard = ({
         creatures.length === 0 && React.createElement(FormGroup, { label: "Count", isEncounter: true },
           React.createElement(NumberInput, { isEncounter: true, min: "1", value: derivedCount, onChange: e => onUpdate({ count: parseInt(e.target.value) || 1 }) })
         ),
-        React.createElement(FormGroup, { label: "XP / Share", title: `${xpAwardPercent ?? 50}% of Base XP Ã· ${Math.max(1, xpShares || 1)} XP shares`, isEncounter: true },
+        React.createElement(FormGroup, { label: "XP / Share", title: `${xpAwardPercent ?? 50}% of Base XP \u00F7 ${Math.max(1, xpShares || 1)} XP shares`, isEncounter: true },
           React.createElement('div', { className: "h-[38px] flex items-center justify-center text-base font-bold text-[#c99a4e] bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 rounded px-2 py-1.5" },
             playerXpAward.toLocaleString()
           )
@@ -917,12 +917,12 @@ const EncounterCard = ({
       creatureToDelete && React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4", onClick: () => setCreatureToDelete(null) },
         React.createElement('div', { className: "bg-[#f3eadd] dark:bg-[#2a2a2a] border-4 border-[#d1c7b8] dark:border-[#4a4a4a] w-full max-w-sm flex flex-col shadow-2xl", onClick: e => e.stopPropagation() },
             React.createElement('header', { className: "flex justify-between items-center p-4 border-b-4 border-red-800/40" },
-                React.createElement('h2', { className: "text-xl font-bold font-medieval text-red-800 dark:text-red-500" }, "Kreatur LÃ¶schen"),
-                React.createElement('button', { onClick: () => setCreatureToDelete(null), className: "text-2xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-red-700" }, "Ã—")
+                React.createElement('h2', { className: "text-xl font-bold font-medieval text-red-800 dark:text-red-500" }, "Kreatur L\u00F6schen"),
+                React.createElement('button', { onClick: () => setCreatureToDelete(null), className: "text-2xl font-bold text-[#6d4f33] dark:text-[#a38b6d] hover:text-red-700" }, "\u00D7")
             ),
             React.createElement('div', { className: "p-6 text-center" },
                 React.createElement('p', { className: "text-lg text-[#6d4f33] dark:text-[#d4c8b0]" },
-                    "MÃ¶chten Sie diese Kreatur wirklich aus dem Encounter entfernen?"
+                    "M\u00F6chten Sie diese Kreatur wirklich aus dem Encounter entfernen?"
                 )
             ),
             React.createElement('footer', { className: "flex justify-end gap-3 p-4 bg-[#eee3cf] dark:bg-[#2f2f2f]" },
@@ -930,7 +930,7 @@ const EncounterCard = ({
                     "Abbrechen"
                 ),
                 React.createElement('button', { onClick: deleteCreature, className: "bg-red-800 text-white font-bold py-2 px-4 rounded-sm transition-transform hover:scale-105 border-2 border-red-900" },
-                    "LÃ¶schen"
+                    "L\u00F6schen"
                 )
             )
         )
@@ -1193,7 +1193,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
                   onClick: () => deletePlayer(player.id),
                   disabled: players.length <= 1,
                   className: "text-red-700 dark:text-red-500 font-bold px-2 py-1 hover:bg-red-800/20 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-                }, "Ã—")
+                }, "\u00D7")
               )
             ))
           )
@@ -1231,7 +1231,7 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
           ),
           React.createElement('div', { className: "mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed" },
             budgetMode === 'average'
-              ? "Budget uses Effective Budget Level Ã— player count. Good for mixed-level parties where low-level replacement characters should still matter."
+              ? "Budget uses Effective Budget Level \u00D7 player count. Good for mixed-level parties where low-level replacement characters should still matter."
               : "Budget sums each player's real level threshold. More RAW-like, but harsher for very low-level replacement characters."
           )
         ),
@@ -1346,29 +1346,29 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
               React.createElement('div', { className: "leading-relaxed" },
                   React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Budget Basis:"),
                   React.createElement('br'),
-                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, budgetMode === 'average' ? `Average Mode: Level ${effectiveBudgetLevel} Ã— ${playerCount} players` : `Sum Mode: ${playerCount} individual player levels`),
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, budgetMode === 'average' ? `Average Mode: Level ${effectiveBudgetLevel} \u00D7 ${playerCount} players` : `Sum Mode: ${playerCount} individual player levels`),
                   React.createElement('br'),
                   React.createElement('span', { className: "text-xs text-slate-500" }, `Budget Multiplier: ${effectiveBudgetMultiplier.toFixed(2)} | Suggested: ${suggestedBudgetMultiplier.toFixed(2)}`)
               ),
               React.createElement('div', { className: "leading-relaxed" },
                   React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Player XP Award:"),
                   React.createElement('br'),
-                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Base XP Ã· ${xpShares} XP shares`),
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Base XP \u00F7 ${xpShares} XP shares`),
                   React.createElement('br'),
                   React.createElement('span', { className: "text-xs text-slate-500" }, `Mode: ${isXpAwardAuto ? 'Auto' : 'Manual'} | Suggested: ${suggestedXpAwardPercent}%`)
               ),
               React.createElement('div', { className: "leading-relaxed" },
                 React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Encounter Difficulties:"),
                 React.createElement('br'),
-                React.createElement('span', { className: "text-slate-500" }, "â—¼ Trivial:"), ` < ${easy.toLocaleString()} XP`,
+                React.createElement('span', { className: "text-slate-500" }, "\u25FC Trivial:"), ` < ${easy.toLocaleString()} XP`,
                 React.createElement('br'),
-                React.createElement('span', { className: "text-sky-600 dark:text-sky-400" }, "â—¼ Easy:"), ` ${easy.toLocaleString()} XP`,
+                React.createElement('span', { className: "text-sky-600 dark:text-sky-400" }, "\u25FC Easy:"), ` ${easy.toLocaleString()} XP`,
                 React.createElement('br'),
-                React.createElement('span', { className: "text-green-700 dark:text-green-400" }, "â—¼ Medium:"), ` ${medium.toLocaleString()} XP`,
+                React.createElement('span', { className: "text-green-700 dark:text-green-400" }, "\u25FC Medium:"), ` ${medium.toLocaleString()} XP`,
                 React.createElement('br'),
-                React.createElement('span', { className: "text-amber-700 dark:text-amber-400" }, "â—¼ Hard:"), ` ${hard.toLocaleString()} XP`,
+                React.createElement('span', { className: "text-amber-700 dark:text-amber-400" }, "\u25FC Hard:"), ` ${hard.toLocaleString()} XP`,
                 React.createElement('br'),
-                React.createElement('span', { className: "text-red-800 dark:text-red-500" }, "â—¼ Deadly:"), ` ${deadly.toLocaleString()}+ XP`
+                React.createElement('span', { className: "text-red-800 dark:text-red-500" }, "\u25FC Deadly:"), ` ${deadly.toLocaleString()}+ XP`
               )
           )
       ),
@@ -1815,10 +1815,10 @@ function App() {
                 setSaveData(newSaveData);
                 localStorage.setItem('dndPlannerSaveData', JSON.stringify(newSaveData));
             } else {
-                alert("Fehler: Die importierte Datei scheint kein gÃ¼ltiger Speicherstand zu sein.");
+                alert("Fehler: Die importierte Datei scheint kein g\u00FCltiger Speicherstand zu sein.");
             }
         } catch (error) {
-            alert("Fehler beim Lesen der Datei. Stellen Sie sicher, dass es sich um eine gÃ¼ltige JSON-Datei handelt.");
+            alert("Fehler beim Lesen der Datei. Stellen Sie sicher, dass es sich um eine g\u00FCltige JSON-Datei handelt.");
         }
     };
     reader.readAsText(file);
@@ -1852,7 +1852,7 @@ function App() {
         ),
         React.createElement('div', { className: "flex items-center gap-2 shrink-0" },
           React.createElement(ThemeSwitcher, { theme: theme, setTheme: setTheme }),
-          React.createElement(AppButton, { onClick: () => setIsSaveModalOpen(true), title: "SpeicherstÃ¤nde Verwalten" }, React.createElement(SaveIcon)),
+          React.createElement(AppButton, { onClick: () => setIsSaveModalOpen(true), title: "Speicherst\u00E4nde Verwalten" }, React.createElement(SaveIcon)),
           React.createElement(AppButton, { onClick: undo, disabled: !canUndo, title: "Undo" }, React.createElement(UndoIcon)),
           React.createElement(AppButton, { onClick: redo, disabled: !canRedo, title: "Redo" }, React.createElement(RedoIcon))
         )
