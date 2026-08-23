@@ -136,6 +136,27 @@ const getXpShares = (party = {}) => {
   return Math.max(1, getPartyPlayerCount(party) + hirelings);
 };
 
+// Easy / Medium / Hard are the official 2024 encounter-planning values.
+// Trivial and Deadly are extrapolated one equal category-step outward:
+//   Trivial = 2 * Easy - Medium
+//   Deadly  = 2 * Hard - Medium
+// If Trivial would become zero or negative (currently only possible at level 20
+// with the default matrix), fall back to 50% of Easy.
+const buildEncounterThresholds = (easyValue, mediumValue, hardValue) => {
+  const easy = Math.max(0, Math.round(easyValue));
+  const medium = Math.max(0, Math.round(mediumValue));
+  const hard = Math.max(0, Math.round(hardValue));
+
+  const extrapolatedTrivial = (2 * easy) - medium;
+  const trivial = extrapolatedTrivial > 0
+    ? extrapolatedTrivial
+    : Math.round(easy * 0.5);
+
+  const deadly = (2 * hard) - medium;
+
+  return { trivial, easy, medium, hard, deadly };
+};
+
 const calculateEncounterThresholds = (party, multiplier, xpTable) => {
   const players = getPartyPlayers(party);
   const mode = party?.budgetMode || 'average';
@@ -152,13 +173,11 @@ const calculateEncounterThresholds = (party, multiplier, xpTable) => {
       };
     }, { low: 0, moderate: 0, high: 0 });
 
-    return {
-      trivial: Math.round(summed.low * 0.5 * safeMultiplier),
-      easy: Math.round(summed.low * safeMultiplier),
-      medium: Math.round(summed.moderate * safeMultiplier),
-      hard: Math.round(summed.high * safeMultiplier),
-      deadly: Math.round(summed.high * 1.5 * safeMultiplier),
-    };
+    return buildEncounterThresholds(
+      summed.low * safeMultiplier,
+      summed.moderate * safeMultiplier,
+      summed.high * safeMultiplier
+    );
   }
 
   const effectiveLevel = getEffectiveBudgetLevel(party);
@@ -166,13 +185,11 @@ const calculateEncounterThresholds = (party, multiplier, xpTable) => {
   const playerCount = players.length;
   if (!t || playerCount < 1) return { trivial: 0, easy: 0, medium: 0, hard: 0, deadly: 0 };
 
-  return {
-    trivial: Math.round(t.low * 0.5 * playerCount * safeMultiplier),
-    easy: Math.round(t.low * playerCount * safeMultiplier),
-    medium: Math.round(t.moderate * playerCount * safeMultiplier),
-    hard: Math.round(t.high * playerCount * safeMultiplier),
-    deadly: Math.round(t.high * 1.5 * playerCount * safeMultiplier),
-  };
+  return buildEncounterThresholds(
+    t.low * playerCount * safeMultiplier,
+    t.moderate * playerCount * safeMultiplier,
+    t.high * playerCount * safeMultiplier
+  );
 };
 
 const calculateDailyBudget = (party, multiplier, xpTable) => {
@@ -236,65 +253,70 @@ const getEffectiveXpAwardPercent = (settings, level) => {
   return settings?.xpAwardPercent ?? 50;
 };
 
+const getDifficultyBoundaries = (thresholds) => ({
+  trivialEasy: (thresholds.trivial + thresholds.easy) / 2, // 20%
+  easyMedium: (thresholds.easy + thresholds.medium) / 2,   // 40%
+  mediumHard: (thresholds.medium + thresholds.hard) / 2,   // 60%
+  hardDeadly: (thresholds.hard + thresholds.deadly) / 2,   // 80%
+});
+
 const getEncounterDifficulty = (adjustedXp, thresholds) => {
-    if (thresholds.deadly === 0) return { level: 'unknown', percentage: 0 };
+  if (thresholds.deadly === 0) return { level: 'unknown', percentage: 0 };
 
-    // The thresholds represent the *midpoints* of their respective 20% sections on the bar.
-    // Easy = 30%, Medium = 50%, Hard = 70%, Deadly = 90%
-    const midpoints = {
-        trivial: thresholds.easy * 0.5, // Trivial midpoint (10%) is assumed half of Easy threshold.
-        easy: thresholds.easy,
-        medium: thresholds.medium,
-        hard: thresholds.hard,
-        deadly: thresholds.deadly,
-    };
+  // The five threshold values are MIDPOINTS of five equal-width bar sections:
+  // Trivial = 10%, Easy = 30%, Medium = 50%, Hard = 70%, Deadly = 90%.
+  // Interpolating directly between these anchors guarantees that every displayed
+  // threshold lands exactly in the middle of its corresponding bar section.
+  const boundaries = getDifficultyBoundaries(thresholds);
+  const maxDeadlyXp = thresholds.deadly + ((thresholds.deadly - thresholds.hard) / 2);
 
-    // Calculate the XP values for the *boundaries* between sections based on the midpoints.
-    const boundaries = {
-        trivialEasy: (midpoints.trivial + midpoints.easy) / 2,   // Boundary at 20%
-        easyMedium: (midpoints.easy + midpoints.medium) / 2,     // Boundary at 40%
-        mediumHard: (midpoints.medium + midpoints.hard) / 2,     // Boundary at 60%
-        hardDeadly: (midpoints.hard + midpoints.deadly) / 2,     // Boundary at 80%
-    };
+  const anchors = [
+    { xp: 0,                  percentage: 0 },
+    { xp: thresholds.trivial, percentage: 10 },
+    { xp: thresholds.easy,    percentage: 30 },
+    { xp: thresholds.medium,  percentage: 50 },
+    { xp: thresholds.hard,    percentage: 70 },
+    { xp: thresholds.deadly,  percentage: 90 },
+    { xp: maxDeadlyXp,        percentage: 100 },
+  ];
 
-    // Define the XP value for the top of the bar (100%).
-    // The XP range from 90% to 100% is assumed to be the same as 80% to 90%.
-    const maxDeadlyXp = midpoints.deadly + (midpoints.deadly - boundaries.hardDeadly);
+  const interpolate = (xp, start, end) => {
+    const range = end.xp - start.xp;
+    if (range <= 0) return start.percentage;
+    const progress = (xp - start.xp) / range;
+    return start.percentage + progress * (end.percentage - start.percentage);
+  };
 
-    let level;
-    let percentage;
+  let percentage = adjustedXp <= 0 ? 0 : 100;
 
-    const safeDivide = (numerator, denominator) => {
-        if (denominator <= 0) return 0;
-        return numerator / denominator;
-    };
-    
-    // Helper function for linear interpolation between two points.
-    const interpolate = (xp, startXp, endXp, startPercent, endPercent) => {
-        const progress = xp - startXp;
-        const range = endXp - startXp;
-        const percentRange = endPercent - startPercent;
-        return startPercent + safeDivide(progress, range) * percentRange;
-    };
-
-    if (adjustedXp < boundaries.trivialEasy) {
-        level = 'trivial'; // 0% to 20%
-        percentage = interpolate(adjustedXp, 0, boundaries.trivialEasy, 0, 20);
-    } else if (adjustedXp < boundaries.easyMedium) {
-        level = 'easy'; // 20% to 40%
-        percentage = interpolate(adjustedXp, boundaries.trivialEasy, boundaries.easyMedium, 20, 40);
-    } else if (adjustedXp < boundaries.mediumHard) {
-        level = 'medium'; // 40% to 60%
-        percentage = interpolate(adjustedXp, boundaries.easyMedium, boundaries.mediumHard, 40, 60);
-    } else if (adjustedXp < boundaries.hardDeadly) {
-        level = 'hard'; // 60% to 80%
-        percentage = interpolate(adjustedXp, boundaries.mediumHard, boundaries.hardDeadly, 60, 80);
-    } else {
-        level = 'deadly'; // 80% to 100%
-        percentage = interpolate(adjustedXp, boundaries.hardDeadly, maxDeadlyXp, 80, 100);
+  if (adjustedXp > 0) {
+    for (let i = 0; i < anchors.length - 1; i++) {
+      const start = anchors[i];
+      const end = anchors[i + 1];
+      if (adjustedXp <= end.xp) {
+        percentage = interpolate(adjustedXp, start, end);
+        break;
+      }
     }
-    
-    return { level, percentage: Math.max(0, Math.min(100, percentage)) };
+  }
+
+  let level;
+  if (adjustedXp < boundaries.trivialEasy) {
+    level = 'trivial';
+  } else if (adjustedXp < boundaries.easyMedium) {
+    level = 'easy';
+  } else if (adjustedXp < boundaries.mediumHard) {
+    level = 'medium';
+  } else if (adjustedXp < boundaries.hardDeadly) {
+    level = 'hard';
+  } else {
+    level = 'deadly';
+  }
+
+  return {
+    level,
+    percentage: Math.max(0, Math.min(100, percentage)),
+  };
 };
 
 // =================================================================================
@@ -1150,6 +1172,11 @@ const AdventuringDay = ({
 // --- PartySetup.tsx ---
 const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable, onPartyChange, onSettingsChange, onXpTableUpdate, onXpTableReset }) => {
   const { trivial, easy, medium, hard, deadly } = encounterThresholds;
+  const difficultyBoundaries = getDifficultyBoundaries(encounterThresholds);
+  const easyMinXp = Math.ceil(difficultyBoundaries.trivialEasy);
+  const mediumMinXp = Math.ceil(difficultyBoundaries.easyMedium);
+  const hardMinXp = Math.ceil(difficultyBoundaries.mediumHard);
+  const deadlyMinXp = Math.ceil(difficultyBoundaries.hardDeadly);
   const players = getPartyPlayers(party);
   const playerCount = players.length;
   const hirelings = Math.max(0, parseInt(party.hirelings, 10) || 0);
@@ -1387,15 +1414,15 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
               React.createElement('div', { className: "leading-relaxed" },
                 React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Encounter Difficulties:"),
                 React.createElement('br'),
-                React.createElement(DifficultyLegendLabel, { colorClass: "bg-slate-500", className: "text-slate-500", text: "Trivial:" }), ` < ${easy.toLocaleString()} XP`,
+                React.createElement(DifficultyLegendLabel, { colorClass: "bg-slate-500", className: "text-slate-500", text: "Trivial:" }), ` < ${easyMinXp.toLocaleString()} XP (mid ${trivial.toLocaleString()})`,
                 React.createElement('br'),
-                React.createElement(DifficultyLegendLabel, { colorClass: "bg-sky-600", className: "text-sky-600 dark:text-sky-400", text: "Easy:" }), ` ${easy.toLocaleString()} XP`,
+                React.createElement(DifficultyLegendLabel, { colorClass: "bg-sky-600", className: "text-sky-600 dark:text-sky-400", text: "Easy:" }), ` ${easyMinXp.toLocaleString()}–${(mediumMinXp - 1).toLocaleString()} XP (mid ${easy.toLocaleString()})`,
                 React.createElement('br'),
-                React.createElement(DifficultyLegendLabel, { colorClass: "bg-green-600", className: "text-green-700 dark:text-green-400", text: "Medium:" }), ` ${medium.toLocaleString()} XP`,
+                React.createElement(DifficultyLegendLabel, { colorClass: "bg-green-600", className: "text-green-700 dark:text-green-400", text: "Medium:" }), ` ${mediumMinXp.toLocaleString()}–${(hardMinXp - 1).toLocaleString()} XP (mid ${medium.toLocaleString()})`,
                 React.createElement('br'),
-                React.createElement(DifficultyLegendLabel, { colorClass: "bg-amber-600", className: "text-amber-700 dark:text-amber-400", text: "Hard:" }), ` ${hard.toLocaleString()} XP`,
+                React.createElement(DifficultyLegendLabel, { colorClass: "bg-amber-600", className: "text-amber-700 dark:text-amber-400", text: "Hard:" }), ` ${hardMinXp.toLocaleString()}–${(deadlyMinXp - 1).toLocaleString()} XP (mid ${hard.toLocaleString()})`,
                 React.createElement('br'),
-                React.createElement(DifficultyLegendLabel, { colorClass: "bg-red-700", className: "text-red-800 dark:text-red-500", text: "Deadly:" }), ` ${deadly.toLocaleString()}+ XP`
+                React.createElement(DifficultyLegendLabel, { colorClass: "bg-red-700", className: "text-red-800 dark:text-red-500", text: "Deadly:" }), ` ${deadlyMinXp.toLocaleString()}+ XP (mid ${deadly.toLocaleString()})`
               )
           )
       ),
