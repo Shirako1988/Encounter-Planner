@@ -206,20 +206,91 @@ const calculateDailyBudget = (party, multiplier, xpTable) => {
   return Math.round(players.length * highXP * 3 * safeMultiplier);
 };
 
-const calculateAdjustedXp = (baseXp, count, overhangPercent) => {
-  if (!baseXp || !count || count < 1) return 0;
-  if (count >= 2) {
-    const excess = count - 1; // Bonus applies from the second creature
-    const bonus = baseXp * excess * (overhangPercent / 100);
-    return Math.round(baseXp + bonus);
-  }
-  return baseXp;
+const asNonNegativeNumber = (value, fallback = 0) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(0, number) : fallback;
 };
 
-const calculatePlayerXpAward = (baseXp, xpShares, awardPercent) => {
+const getOverhangBounds = (minPercent, maxPercent) => {
+  const min = asNonNegativeNumber(minPercent);
+  return { min, max: Math.max(min, asNonNegativeNumber(maxPercent, 10)) };
+};
+
+// Homebrew reference: the unmultiplied Medium budget per character at the
+// Effective Budget Level. It follows level overrides and the editable matrix;
+// neither XP shares nor the Budget Multiplier changes this reference.
+const getOverhangReferenceXp = (party, xpTable) => {
+  const level = getEffectiveBudgetLevel(party);
+  const medium = xpTable?.[level]?.moderate ?? XP_THRESHOLDS_PER_LEVEL[level].moderate;
+  return Math.max(1, asNonNegativeNumber(medium));
+};
+
+// Each unordered pair of individual enemies contributes exactly once:
+//   strength = min(1, sqrt(min(xpA, xpB) / referenceXp))
+//   overhang = min + strength * (max - min)
+//   planning bonus = (xpA + xpB) * overhang / 100
+//   reward bonus = strength * planning bonus
+// Aggregate identical enemies instead of expanding large creature arrays.
+// Keep full precision until display or the final per-share award.
+const calculateEncounterXp = (encounter, referenceXp, minPercent, maxPercent) => {
+  const { min, max } = getOverhangBounds(minPercent, maxPercent);
+  const safeReferenceXp = Math.max(1, asNonNegativeNumber(referenceXp, 1));
+  const creatures = Array.isArray(encounter.creatures) ? encounter.creatures : [];
+  const groups = creatures.length > 0
+    ? creatures.map(creature => ({
+        xp: CR_TO_XP[creature.cr] || 0,
+        count: Math.trunc(asNonNegativeNumber(creature.count ?? 1)),
+      })).filter(group => group.count > 0)
+    : [{
+        // Without a roster, approximate equally strong enemies from total XP.
+        xp: asNonNegativeNumber(encounter.baseXp) / Math.max(1, Math.trunc(asNonNegativeNumber(encounter.count, 1))),
+        count: Math.max(1, Math.trunc(asNonNegativeNumber(encounter.count, 1))),
+      }];
+
+  const baseXp = groups.reduce((total, group) => total + group.xp * group.count, 0);
+  const count = groups.reduce((total, group) => total + group.count, 0);
+  const hasOverride = encounter.localOverhangPercent !== null
+    && encounter.localOverhangPercent !== undefined
+    && encounter.localOverhangPercent !== ''
+    && Number.isFinite(Number(encounter.localOverhangPercent));
+  const override = hasOverride ? asNonNegativeNumber(encounter.localOverhangPercent) : null;
+  let planningBonus = 0;
+  let rewardBonus = 0;
+  let suggestedPlanningBonus = 0;
+
+  for (let i = 0; i < groups.length; i++) {
+    for (let j = i; j < groups.length; j++) {
+      const a = groups[i];
+      const b = groups[j];
+      const pairs = i === j ? a.count * (a.count - 1) / 2 : a.count * b.count;
+      if (pairs === 0) continue;
+
+      const strength = Math.min(1, Math.sqrt(Math.min(a.xp, b.xp) / safeReferenceXp));
+      const automaticOverhang = min + strength * (max - min);
+      const pairXp = (a.xp + b.xp) * pairs;
+      const bonus = pairXp * (override ?? automaticOverhang) / 100;
+      suggestedPlanningBonus += pairXp * automaticOverhang / 100;
+      planningBonus += bonus;
+      rewardBonus += strength * bonus;
+    }
+  }
+
+  const overhangBasis = baseXp * Math.max(0, count - 1);
+  return {
+    baseXp,
+    count,
+    adjustedXp: baseXp + planningBonus,
+    rewardXp: baseXp + rewardBonus,
+    overhangPercent: overhangBasis > 0 ? 100 * planningBonus / overhangBasis : 0,
+    suggestedOverhangPercent: overhangBasis > 0 ? 100 * suggestedPlanningBonus / overhangBasis : 0,
+    bonusAwardPercent: planningBonus > 0 ? 100 * rewardBonus / planningBonus : 0,
+  };
+};
+
+const calculatePlayerXpAward = (rewardXp, xpShares, awardPercent) => {
   const safeShares = Math.max(1, xpShares || 1);
   const safeAwardPercent = awardPercent ?? 50;
-  return Math.round((baseXp * (safeAwardPercent / 100)) / safeShares);
+  return Math.round((rewardXp * (safeAwardPercent / 100)) / safeShares);
 };
 
 const getSuggestedBudgetMultiplier = (level) => {
@@ -769,6 +840,7 @@ const XpMatrix = ({ level, xpTable, onUpdate, onReset }) => {
 // --- EncounterCard.tsx ---
 const EncounterCard = ({
   encounter,
+  overhangReferenceXp,
   globalOverhangPercent,
   minOverhangPercent,
   xpAwardPercent,
@@ -786,44 +858,16 @@ const EncounterCard = ({
   onDragEnd,
 }) => {
   const creatures = encounter.creatures || [];
-  
-  const suggestedOverhang = useMemo(() => {
-    if (creatures.length === 0) return globalOverhangPercent;
-    let totalXp = 0;
-    let maxXp = 0;
-    let totalCount = 0;
-    creatures.forEach(c => {
-      const xp = CR_TO_XP[c.cr] || 0;
-      totalXp += xp * c.count;
-      totalCount += c.count;
-      if (xp > maxXp) maxXp = xp;
-    });
-    if (maxXp === 0 || totalCount === 0) return globalOverhangPercent;
-    
-    const averageXp = totalXp / totalCount;
-    const ratio = Math.sqrt(averageXp / maxXp);
-    
-    const minO = minOverhangPercent || 0;
-    const maxO = globalOverhangPercent || 0;
-    
-    return Math.round(minO + ratio * (maxO - minO));
-  }, [creatures, globalOverhangPercent, minOverhangPercent]);
-
-  const overhangPercent = encounter.localOverhangPercent ?? suggestedOverhang;
-  
-  const derivedBaseXp = useMemo(() => {
-    if (creatures.length === 0) return encounter.baseXp;
-    return creatures.reduce((sum, c) => sum + (CR_TO_XP[c.cr] || 0) * c.count, 0);
-  }, [creatures, encounter.baseXp]);
-
-  const derivedCount = useMemo(() => {
-    if (creatures.length === 0) return encounter.count;
-    return creatures.reduce((sum, c) => sum + c.count, 0);
-  }, [creatures, encounter.count]);
-  
-  const adjustedXp = useMemo(() => 
-    calculateAdjustedXp(derivedBaseXp, derivedCount, overhangPercent),
-    [derivedBaseXp, derivedCount, overhangPercent]
+  const {
+    baseXp: derivedBaseXp,
+    count: derivedCount,
+    adjustedXp,
+    rewardXp,
+    suggestedOverhangPercent: suggestedOverhang,
+    bonusAwardPercent,
+  } = useMemo(() =>
+    calculateEncounterXp(encounter, overhangReferenceXp, minOverhangPercent, globalOverhangPercent),
+    [encounter, overhangReferenceXp, minOverhangPercent, globalOverhangPercent]
   );
   
   const difficulty = useMemo(() =>
@@ -832,8 +876,8 @@ const EncounterCard = ({
   );
 
   const playerXpAward = useMemo(() =>
-    calculatePlayerXpAward(derivedBaseXp, xpShares, xpAwardPercent),
-    [derivedBaseXp, xpShares, xpAwardPercent]
+    calculatePlayerXpAward(rewardXp, xpShares, xpAwardPercent),
+    [rewardXp, xpShares, xpAwardPercent]
   );
 
   const [creatureToDelete, setCreatureToDelete] = useState(null);
@@ -920,28 +964,33 @@ const EncounterCard = ({
 
       React.createElement('div', { className: "flex flex-wrap gap-2 items-end sm:ml-8 mt-2" },
         React.createElement(FormGroup, { label: "Base XP", isEncounter: true },
-          React.createElement(NumberInput, { isEncounter: true, min: "0", value: derivedBaseXp, disabled: creatures.length > 0, onChange: e => onUpdate({ baseXp: parseInt(e.target.value) || 0 }) })
+          React.createElement(NumberInput, { isEncounter: true, min: "0", value: Math.round(derivedBaseXp), disabled: creatures.length > 0, onChange: e => onUpdate({ baseXp: parseInt(e.target.value) || 0 }) })
         ),
         creatures.length === 0 && React.createElement(FormGroup, { label: "Count", isEncounter: true },
           React.createElement(NumberInput, { isEncounter: true, min: "1", value: derivedCount, onChange: e => onUpdate({ count: parseInt(e.target.value) || 1 }) })
         ),
-        React.createElement(FormGroup, { label: "XP / Share", title: `${xpAwardPercent ?? 50}% of Base XP / ${Math.max(1, xpShares || 1)} XP shares`, isEncounter: true },
+        React.createElement(FormGroup, { label: "Reward XP", title: `Base XP plus ${bonusAwardPercent.toFixed(2)}% of the Overhang bonus, before Player XP Award % and XP shares.`, isEncounter: true },
+          React.createElement('div', { className: "h-[38px] flex items-center justify-center text-base font-bold text-[#c99a4e] bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 rounded px-2 py-1.5" },
+            Math.round(rewardXp).toLocaleString()
+          )
+        ),
+        React.createElement(FormGroup, { label: "XP / Share", title: `${xpAwardPercent ?? 50}% of Reward XP / ${Math.max(1, xpShares || 1)} XP shares`, isEncounter: true },
           React.createElement('div', { className: "h-[38px] flex items-center justify-center text-base font-bold text-[#c99a4e] bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 rounded px-2 py-1.5" },
             playerXpAward.toLocaleString()
           )
         ),
-        React.createElement(FormGroup, { label: "Overhang %", title: `Suggested: ${suggestedOverhang}%`, isEncounter: true },
+        React.createElement(FormGroup, { label: "Overhang %", title: `Auto: ${suggestedOverhang.toFixed(2)}%. Reference: ${overhangReferenceXp.toLocaleString()} XP. Optional manual override; the awarded part of the bonus still depends on enemy strength.`, isEncounter: true },
           React.createElement(NumberInput, { 
             isEncounter: true,
-            min: "0", max: "999", 
+            min: "0", max: "999", step: "0.01",
             value: encounter.localOverhangPercent ?? '', 
-            onChange: e => onUpdate({ localOverhangPercent: e.target.value === '' ? null : parseInt(e.target.value) }),
-            placeholder: suggestedOverhang.toString() 
+            onChange: e => onUpdate({ localOverhangPercent: e.target.value === '' ? null : Math.min(999, asNonNegativeNumber(e.target.value)) }),
+            placeholder: suggestedOverhang.toFixed(2)
           })
         ),
         React.createElement(FormGroup, { label: "Adjusted XP", isEncounter: true },
           React.createElement('div', { className: "h-[38px] flex items-center justify-center text-base font-bold text-[#c99a4e] bg-[#c99a4e]/10 border-2 border-[#c99a4e]/30 rounded px-2 py-1.5" },
-            adjustedXp.toLocaleString()
+            Math.round(adjustedXp).toLocaleString()
           )
         )
       ),
@@ -959,6 +1008,10 @@ const EncounterCard = ({
         React.createElement('div', { className: `w-14 text-center text-sm font-bold uppercase tracking-wider ${DIFFICULTY_TEXT_COLORS[difficulty.level]}` },
           difficulty.level
         )
+      ),
+
+      creatures.length === 0 && derivedCount > 1 && React.createElement('p', { className: "text-xs text-slate-600 dark:text-slate-400 sm:ml-8" },
+        "Without creature types, enemies are estimated as equally strong (Base XP / Count)."
       ),
 
       creatureToDelete && React.createElement('div', { className: "fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4", onClick: () => setCreatureToDelete(null) },
@@ -991,6 +1044,7 @@ const EncounterCard = ({
 const AdventuringDay = ({
   day,
   dailyBudget,
+  overhangReferenceXp,
   globalOverhangPercent,
   minOverhangPercent,
   xpAwardPercent,
@@ -1005,45 +1059,17 @@ const AdventuringDay = ({
 }) => {
   const [draggedItemIndex, setDraggedItemIndex] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
+  // Older saves have no isCollapsed field and remain expanded by default.
+  const isCollapsed = day.isCollapsed === true;
+  const contentId = `adventuring-day-content-${day.id}`;
+  const dayTitle = day.title || 'Adventuring Day';
   
   const { totalUsedXp, ignoredXp } = useMemo(() => {
     return day.encounters.reduce((totals, enc) => {
-      const creatures = enc.creatures || [];
-      
-      let suggestedOverhang = globalOverhangPercent;
-      if (creatures.length > 0) {
-        let totalXp = 0;
-        let maxXp = 0;
-        let totalCount = 0;
-        creatures.forEach(c => {
-          const xp = CR_TO_XP[c.cr] || 0;
-          totalXp += xp * c.count;
-          totalCount += c.count;
-          if (xp > maxXp) maxXp = xp;
-        });
-        if (maxXp > 0 && totalCount > 0) {
-          const averageXp = totalXp / totalCount;
-          const ratio = Math.sqrt(averageXp / maxXp);
-          const minO = minOverhangPercent || 0;
-          const maxO = globalOverhangPercent || 0;
-          suggestedOverhang = Math.round(minO + ratio * (maxO - minO));
-        }
-      }
-      
-      const overhang = enc.localOverhangPercent ?? suggestedOverhang;
-      
-      const derivedBaseXp = creatures.length > 0 
-        ? creatures.reduce((sum, c) => sum + (CR_TO_XP[c.cr] || 0) * c.count, 0)
-        : enc.baseXp;
-        
-      const derivedCount = creatures.length > 0
-        ? creatures.reduce((sum, c) => sum + c.count, 0)
-        : enc.count;
-        
-      const adjustedXp = calculateAdjustedXp(derivedBaseXp, derivedCount, overhang);
+      const { adjustedXp } = calculateEncounterXp(enc, overhangReferenceXp, minOverhangPercent, globalOverhangPercent);
       const difficulty = getEncounterDifficulty(adjustedXp, encounterThresholds);
 
-      // Trivial encounters still award their normal player XP, but they do not
+      // Trivial encounters still award their calculated player XP, but they do not
       // consume any of the Adventuring Day budget.
       if (difficulty.level === 'trivial') {
         return { ...totals, ignoredXp: totals.ignoredXp + adjustedXp };
@@ -1051,7 +1077,7 @@ const AdventuringDay = ({
 
       return { ...totals, totalUsedXp: totals.totalUsedXp + adjustedXp };
     }, { totalUsedXp: 0, ignoredXp: 0 });
-  }, [day.encounters, globalOverhangPercent, minOverhangPercent, encounterThresholds]);
+  }, [day.encounters, overhangReferenceXp, globalOverhangPercent, minOverhangPercent, encounterThresholds]);
   
   const remainingXp = dailyBudget - totalUsedXp;
 
@@ -1104,6 +1130,14 @@ const AdventuringDay = ({
     setDropTarget(null);
   };
 
+  const toggleCollapsed = () => {
+    setDraggedItemIndex(null);
+    setDropTarget(null);
+    // Store this on the day so autosave, save slots, undo/redo and JSON
+    // import/export all preserve the expanded/collapsed state.
+    onUpdateDay(day.id, { isCollapsed: !isCollapsed });
+  };
+
   const numEncounters = day.encounters.length;
   const gridColsClass = 
       numEncounters <= 1 ? 'grid-cols-1' :
@@ -1111,57 +1145,81 @@ const AdventuringDay = ({
       'grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
 
   return (
-    React.createElement('div', { className: "bg-[#f3eadd] dark:bg-[#2a2a2a]/70 border-4 border-[#d1c7b8] dark:border-[#4a4a4a] p-5 shadow-lg" },
-      React.createElement('header', { className: "flex justify-between items-center gap-4 pb-3 mb-4 border-b-4 border-[#c99a4e]/40" },
-        React.createElement('input', {
+    React.createElement('div', { className: `bg-[#f3eadd] dark:bg-[#2a2a2a]/70 border-4 border-[#d1c7b8] dark:border-[#4a4a4a] shadow-lg ${isCollapsed ? 'p-3' : 'p-5'}` },
+      React.createElement('header', { className: `flex justify-between items-center gap-3 ${isCollapsed ? '' : 'pb-3 mb-4 border-b-4 border-[#c99a4e]/40'}` },
+        React.createElement('button', {
+          type: "button",
+          onClick: toggleCollapsed,
+          'aria-expanded': !isCollapsed,
+          'aria-controls': contentId,
+          'aria-label': `${isCollapsed ? 'Expand' : 'Collapse'} ${dayTitle}`,
+          title: isCollapsed ? "Expand day" : "Collapse day",
+          className: `flex items-center gap-3 min-w-0 p-1 text-[#6d4f33] dark:text-[#d4c8b0] hover:text-[#c99a4e] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#c99a4e] rounded-sm ${isCollapsed ? 'w-full text-left' : 'shrink-0'}`
+        },
+          React.createElement('svg', {
+            xmlns: "http://www.w3.org/2000/svg",
+            width: "22", height: "22", viewBox: "0 0 24 24",
+            fill: "none", stroke: "currentColor", strokeWidth: "2.5",
+            strokeLinecap: "round", strokeLinejoin: "round",
+            'aria-hidden': "true", focusable: "false",
+            className: `shrink-0 transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`
+          }, React.createElement('path', { d: "M6 9l6 6 6-6" })),
+          isCollapsed && React.createElement('span', { className: "text-2xl font-bold font-medieval truncate" }, dayTitle)
+        ),
+        !isCollapsed && React.createElement('input', {
           type: "text",
           value: day.title,
           onChange: e => onUpdateDay(day.id, { title: e.target.value }),
-          className: "bg-transparent text-2xl font-bold w-full focus:outline-none font-medieval",
+          className: "bg-transparent text-2xl font-bold w-full min-w-0 focus:outline-none font-medieval",
           placeholder: `Adventuring Day ${day.id}`
         }),
-        React.createElement('button', { onClick: () => onDeleteDay(day.id), className: "bg-red-800 text-[#f3eadd] font-bold py-2 px-4 rounded-sm shrink-0 transition-transform hover:scale-105 border-2 border-red-900" },
+        !isCollapsed && React.createElement('button', { onClick: () => onDeleteDay(day.id), className: "bg-red-800 text-[#f3eadd] font-bold py-2 px-4 rounded-sm shrink-0 transition-transform hover:scale-105 border-2 border-red-900" },
           "Delete Day"
         )
       ),
+
+      // Keep encounter components mounted while hiding the entire day body.
+      React.createElement('div', { id: contentId, hidden: isCollapsed },
       
-      React.createElement('button', { onClick: () => onAddEncounter(day.id), className: "w-full bg-transparent border-2 border-[#c99a4e]/50 text-[#c99a4e] font-bold py-2.5 px-4 rounded-sm mb-3 transition-colors hover:bg-[#c99a4e]/20" },
-        "+ Add Encounter"
-      ),
+        React.createElement('button', { onClick: () => onAddEncounter(day.id), className: "w-full bg-transparent border-2 border-[#c99a4e]/50 text-[#c99a4e] font-bold py-2.5 px-4 rounded-sm mb-3 transition-colors hover:bg-[#c99a4e]/20" },
+          "+ Add Encounter"
+        ),
 
-      React.createElement('div', { className: `grid gap-3 ${gridColsClass}` },
-        day.encounters.map((encounter, index) => (
-          React.createElement(EncounterCard, {
-            key: encounter.id,
-            encounter: encounter,
-            globalOverhangPercent: globalOverhangPercent,
-            minOverhangPercent: minOverhangPercent,
-            xpAwardPercent: xpAwardPercent,
-            xpShares: xpShares,
-            encounterThresholds: encounterThresholds,
-            onUpdate: updatedEncounter => onUpdateEncounter(day.id, encounter.id, updatedEncounter),
-            onDelete: () => onDeleteEncounter(day.id, encounter.id),
-            isDragging: draggedItemIndex === index,
-            isDropTargetBefore: dropTarget?.index === index && dropTarget.position === 'before',
-            isDropTargetAfter: dropTarget?.index === index && dropTarget.position === 'after',
-            onDragStart: (e) => handleDragStart(e, index),
-            onDragOver: (e) => handleDragOver(e, index),
-            onDragLeave: handleDragLeave,
-            onDrop: handleDrop,
-            onDragEnd: handleDragEnd
-          })
-        ))
-      ),
+        React.createElement('div', { className: `grid gap-3 ${gridColsClass}` },
+          day.encounters.map((encounter, index) => (
+            React.createElement(EncounterCard, {
+              key: encounter.id,
+              encounter: encounter,
+              overhangReferenceXp: overhangReferenceXp,
+              globalOverhangPercent: globalOverhangPercent,
+              minOverhangPercent: minOverhangPercent,
+              xpAwardPercent: xpAwardPercent,
+              xpShares: xpShares,
+              encounterThresholds: encounterThresholds,
+              onUpdate: updatedEncounter => onUpdateEncounter(day.id, encounter.id, updatedEncounter),
+              onDelete: () => onDeleteEncounter(day.id, encounter.id),
+              isDragging: draggedItemIndex === index,
+              isDropTargetBefore: dropTarget?.index === index && dropTarget.position === 'before',
+              isDropTargetAfter: dropTarget?.index === index && dropTarget.position === 'after',
+              onDragStart: (e) => handleDragStart(e, index),
+              onDragOver: (e) => handleDragOver(e, index),
+              onDragLeave: handleDragLeave,
+              onDrop: handleDrop,
+              onDragEnd: handleDragEnd
+            })
+          ))
+        ),
 
-      React.createElement('footer', { className: "mt-4 pt-3 border-t-2 border-black/10 dark:border-white/10 flex justify-between items-center font-bold text-lg" },
-        React.createElement('span', null, "Used XP: ", React.createElement('span', { className: "text-[#c99a4e]" }, totalUsedXp.toLocaleString())),
-        React.createElement('span', null,
-          "Remaining: ",
-          React.createElement('span', { className: remainingXp >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-500' }, `${remainingXp.toLocaleString()} XP`),
-          React.createElement('span', {
-            className: "ml-2 text-sm text-slate-500 dark:text-slate-400",
-            title: "Adjusted XP from Trivial encounters. These encounters award normal player XP but use 0% of the Daily Budget."
-          }, ` (${ignoredXp.toLocaleString()} XP ignored)`)
+        React.createElement('footer', { className: "mt-4 pt-3 border-t-2 border-black/10 dark:border-white/10 flex justify-between items-center font-bold text-lg" },
+          React.createElement('span', null, "Used XP: ", React.createElement('span', { className: "text-[#c99a4e]" }, Math.round(totalUsedXp).toLocaleString())),
+          React.createElement('span', null,
+            "Remaining: ",
+            React.createElement('span', { className: remainingXp >= 0 ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-500' }, `${Math.round(remainingXp).toLocaleString()} XP`),
+            React.createElement('span', {
+              className: "ml-2 text-sm text-slate-500 dark:text-slate-400",
+              title: "Adjusted XP from Trivial encounters. These encounters award Reward XP but use 0% of the Daily Budget."
+            }, ` (${Math.round(ignoredXp).toLocaleString()} XP ignored)`)
+          )
         )
       )
     )
@@ -1183,6 +1241,8 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
   const xpShares = getXpShares(party);
   const averageLevel = getAveragePartyLevel(party);
   const effectiveBudgetLevel = getEffectiveBudgetLevel(party);
+  const overhangReferenceXp = getOverhangReferenceXp(party, xpTable);
+  const overhangBounds = getOverhangBounds(settings.minOverhangPercent, settings.globalOverhangPercent);
   const budgetMode = party.budgetMode || 'average';
   const hasLevelOverride = party.levelOverride !== null && party.levelOverride !== undefined && party.levelOverride !== '';
   const baseThresholds = xpTable[effectiveBudgetLevel];
@@ -1371,10 +1431,13 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
           React.createElement('div', { className: "flex items-center gap-3" },
             React.createElement(RangeInput, {
               min: "0", max: "10", step: "1",
-              value: settings.minOverhangPercent || 0,
-              onChange: e => onSettingsChange({ minOverhangPercent: parseInt(e.target.value) })
+              value: overhangBounds.min,
+              onChange: e => {
+                const min = asNonNegativeNumber(e.target.value);
+                onSettingsChange({ minOverhangPercent: min, globalOverhangPercent: Math.max(min, overhangBounds.max) });
+              }
             }),
-            React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, `${settings.minOverhangPercent || 0}%`)
+            React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, `${overhangBounds.min}%`)
           )
         ),
 
@@ -1383,10 +1446,13 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
           React.createElement('div', { className: "flex items-center gap-3" },
             React.createElement(RangeInput, {
               min: "0", max: "10", step: "1",
-              value: settings.globalOverhangPercent,
-              onChange: e => onSettingsChange({ globalOverhangPercent: parseInt(e.target.value) })
+              value: overhangBounds.max,
+              onChange: e => {
+                const max = asNonNegativeNumber(e.target.value);
+                onSettingsChange({ globalOverhangPercent: max, minOverhangPercent: Math.min(max, overhangBounds.min) });
+              }
             }),
-            React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, `${settings.globalOverhangPercent}%`)
+            React.createElement('span', { className: "min-w-[45px] text-center font-bold text-lg text-[#c99a4e]" }, `${overhangBounds.max}%`)
           )
         ),
         
@@ -1407,9 +1473,23 @@ const PartySetup = ({ party, settings, dailyBudget, encounterThresholds, xpTable
               React.createElement('div', { className: "leading-relaxed" },
                   React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Player XP Award:"),
                   React.createElement('br'),
-                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Base XP / ${xpShares} XP shares`),
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${xpAwardPercent}% of Reward XP / ${xpShares} XP shares`),
                   React.createElement('br'),
                   React.createElement('span', { className: "text-xs text-slate-500" }, `Mode: ${isXpAwardAuto ? 'Auto' : 'Manual'} | Suggested: ${suggestedXpAwardPercent}%`)
+              ),
+              React.createElement('div', { className: "leading-relaxed" },
+                  React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Overhang Reference:"),
+                  React.createElement('br'),
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, `${overhangReferenceXp.toLocaleString()} XP — Medium per player at Effective Level ${effectiveBudgetLevel}`),
+                  React.createElement('br'),
+                  React.createElement('span', { className: "text-xs text-slate-500" }, "Uses your XP matrix before the Budget Multiplier, in both budget modes.")
+              ),
+              React.createElement('div', { className: "leading-relaxed" },
+                  React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Overhang & Rewards (Homebrew):"),
+                  React.createElement('br'),
+                  React.createElement('span', { className: "text-slate-700 dark:text-slate-400" }, "Adjusted XP includes the Overhang bonus for difficulty and daily planning. Reward XP adds a strength-weighted part of that bonus to Base XP."),
+                  React.createElement('br'),
+                  React.createElement('span', { className: "text-xs text-slate-500" }, "Weaker enemies receive smaller bonuses on higher group levels. Use separate encounters for waves that do not overlap.")
               ),
               React.createElement('div', { className: "leading-relaxed" },
                 React.createElement('strong', { className: "text-[#6d4f33] dark:text-[#a38b6d]" }, "Encounter Difficulties:"),
@@ -1470,10 +1550,13 @@ const createNewSaveSlot = (appState, name) => ({
 const normalizeSettings = (settings = {}) => {
   const hasBudgetMode = Object.prototype.hasOwnProperty.call(settings, 'budgetMultiplierMode');
   const hasXpAwardMode = Object.prototype.hasOwnProperty.call(settings, 'xpAwardMode');
+  const overhangBounds = getOverhangBounds(settings.minOverhangPercent ?? 0, settings.globalOverhangPercent ?? 10);
 
   return {
     ...initialAppState.settings,
     ...settings,
+    minOverhangPercent: overhangBounds.min,
+    globalOverhangPercent: overhangBounds.max,
     budgetMultiplierMode: hasBudgetMode ? settings.budgetMultiplierMode : 'manual',
     xpAwardMode: hasXpAwardMode ? settings.xpAwardMode : 'manual',
   };
@@ -1644,6 +1727,7 @@ function App() {
   }, [state]);
 
   const effectiveBudgetLevel = useMemo(() => getEffectiveBudgetLevel(party), [party]);
+  const overhangReferenceXp = useMemo(() => getOverhangReferenceXp(party, xpThresholdsTable), [party, xpThresholdsTable]);
   const xpShares = useMemo(() => getXpShares(party), [party]);
   const effectiveBudgetMultiplier = useMemo(() => getEffectiveBudgetMultiplier(settings, effectiveBudgetLevel), [settings, effectiveBudgetLevel]);
   const effectiveXpAwardPercent = useMemo(() => getEffectiveXpAwardPercent(settings, effectiveBudgetLevel), [settings, effectiveBudgetLevel]);
@@ -1681,6 +1765,7 @@ function App() {
     const newDay = {
       id: crypto.randomUUID(),
       title: `Adventuring Day ${days.length + 1}`,
+      isCollapsed: false,
       encounters: [],
     };
     setState({ ...state, days: [...days, newDay] });
@@ -1936,6 +2021,7 @@ function App() {
                 key: day.id,
                 day: day,
                 dailyBudget: dailyBudget,
+                overhangReferenceXp: overhangReferenceXp,
                 globalOverhangPercent: settings.globalOverhangPercent,
                 minOverhangPercent: settings.minOverhangPercent,
                 xpAwardPercent: effectiveXpAwardPercent,
